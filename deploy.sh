@@ -1,6 +1,6 @@
 #!/bin/sh
-# Installs or updates Port Manager on a Steam Frame from this computer over SSH: the service, and the
-# "Port Manager" app in the Steam library with its art.
+# Installs or updates Frametanium on a Steam Frame from this computer over SSH: the service, and the
+# "Frametanium" app in the Steam library with its art.
 #
 # Usage: ./deploy.sh [host]        host defaults to frame.local
 # Env:   SSH_KEY (default ~/.ssh/frame_devkit), SSH_USER (default steamos)
@@ -11,18 +11,20 @@ HOST="${1:-frame.local}"
 KEY="${SSH_KEY:-$HOME/.ssh/frame_devkit}"
 USER_AT="${SSH_USER:-steamos}@$HOST"
 SSH="ssh -i $KEY -o ConnectTimeout=10"
-GAMEID=Port_Manager
+GAMEID=Frametanium
 
-[ -x dist/app/port-manager ] || { echo "Build the app first: app/build-arm64.sh"; exit 1; }
+[ -x dist/app/frametanium ] || { echo "Build the app first: app/build-arm64.sh"; exit 1; }
 $SSH "$USER_AT" true || { echo "Can't reach $HOST over SSH. Is the Frame on and on this network?"; exit 1; }
 
 echo "== Service"
-$SSH "$USER_AT" 'rm -rf ~/.cache/frame-port-manager-src && mkdir -p ~/.cache/frame-port-manager-src'
-rsync -a -e "$SSH" manager.py page.html catalog.json suggestions.json frame-port-manager.service install.sh art "$USER_AT:.cache/frame-port-manager-src/"
-$SSH "$USER_AT" 'sh ~/.cache/frame-port-manager-src/install.sh'
+$SSH "$USER_AT" 'rm -rf ~/.cache/frametanium-src && mkdir -p ~/.cache/frametanium-src'
+rsync -a -e "$SSH" manager.py page.html catalog.json suggestions.json frametanium.service install.sh art "$USER_AT:.cache/frametanium-src/"
+$SSH "$USER_AT" 'sh ~/.cache/frametanium-src/install.sh'
 
 echo "== Headset app"
 rsync -a --delete -e "$SSH" dist/app/ "$USER_AT:devkit-game/$GAMEID/"
+# The app used to be called Port Manager. Its old folder goes; remove the old "Port_Manager" tile from the library by hand.
+$SSH "$USER_AT" 'rm -rf ~/devkit-game/Port_Manager'
 $SSH "$USER_AT" "python3 ~/devkit-utils/steam-client-create-shortcut --parms '{\"gameid\": \"$GAMEID\", \"directory\": \"/home/steamos/devkit-game/$GAMEID\", \"argv\": [\"./run.sh\"], \"env\": {}, \"settings\": {\"compat_tool\": \"SteamLinuxRuntime_4-arm64\", \"steam_play\": \"0\"}}'" >/dev/null
 
 echo "== Library art"
@@ -42,4 +44,4 @@ if [ -n "$APPID" ]; then
 else
     echo "Couldn't find the shortcut's app id yet; run this again later to add the art."
 fi
-echo "Done. Open \"Port Manager\" from the library, or http://$HOST:8643 in a browser."
+echo "Done. Open \"Frametanium\" from the library, or http://$HOST:8643 in a browser."

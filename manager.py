@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Port Manager: installs and updates Steam Frame apps and ports from their GitHub releases, like Obtainium.
+"""Frametanium: installs and updates Steam Frame apps and ports from their GitHub releases, like Obtainium.
 
 A small web service (standard library only) that runs on the Frame. It tracks a list of GitHub repos: the built-in
 ports in catalog.json plus any repo you add. For each it reads the releases, picks the download meant for the Frame
@@ -33,14 +33,14 @@ from pathlib import Path
 
 HOME = Path.home()
 APP_DIR = Path(__file__).resolve().parent
-CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config")) / "port-manager"
+CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config")) / "frametanium"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 INSTALLED_FILE = CONFIG_DIR / "installed.json"
 USER_CATALOG = CONFIG_DIR / "catalog.json"
-CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", HOME / ".cache")) / "port-manager"
-DATA_DIR = Path(os.environ.get("XDG_DATA_HOME", HOME / ".local/share")) / "port-manager"
+CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", HOME / ".cache")) / "frametanium"
+DATA_DIR = Path(os.environ.get("XDG_DATA_HOME", HOME / ".local/share")) / "frametanium"
 APPS_DIR = DATA_DIR / "apps"          # installs of "installer" apps (their installers may point back into them)
-GAMES_DIR = Path(os.environ.get("PORT_MANAGER_GAMES", HOME / "devkit-game"))
+GAMES_DIR = Path(os.environ.get("FRAMETANIUM_GAMES", HOME / "devkit-game"))
 CREATE_SHORTCUT = HOME / "devkit-utils" / "steam-client-create-shortcut"
 STEAM_USERDATA = HOME / ".local/share/Steam/userdata"
 
@@ -123,7 +123,7 @@ def unhide_builtin(repo):
 
 
 def gh_request(url, accept="application/vnd.github+json"):
-    headers = {"Accept": accept, "User-Agent": "frame-port-manager", "X-GitHub-Api-Version": "2022-11-28"}
+    headers = {"Accept": accept, "User-Agent": "frametanium", "X-GitHub-Api-Version": "2022-11-28"}
     token = config().get("github_token")
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -402,7 +402,7 @@ def register_with_steam(port, folder):
 
 
 def fetch(url, dest, limit=8 * 1024 * 1024):
-    req = urllib.request.Request(url, headers={"User-Agent": "frame-port-manager"})
+    req = urllib.request.Request(url, headers={"User-Agent": "frametanium"})
     with urllib.request.urlopen(req, timeout=20) as r:
         data = r.read(limit)
     if not data.startswith(b"\x89PNG") and not data.startswith(b"\xff\xd8"):
@@ -498,8 +498,8 @@ def extract_zip(archive, dest):
 
 def extract_appimage(archive, dest):
     os.chmod(archive, 0o755)
-    # PORT_MANAGER_EXEC_WRAPPER (e.g. qemu-aarch64-static) lets tests on another architecture run the AppImage.
-    wrapper = os.environ.get("PORT_MANAGER_EXEC_WRAPPER", "").split()
+    # FRAMETANIUM_EXEC_WRAPPER (e.g. qemu-aarch64-static) lets tests on another architecture run the AppImage.
+    wrapper = os.environ.get("FRAMETANIUM_EXEC_WRAPPER", "").split()
     try:
         r = subprocess.run(wrapper + [str(archive), "--appimage-extract"], cwd=dest, capture_output=True, timeout=600)
     except OSError as e:
@@ -642,7 +642,7 @@ def write_launcher(staging, port):
     folder = "/" + str(rel.parent) if str(rel.parent) != "." else ""
     launch.write_text(
         "#!/bin/sh\n"
-        f"# Starts {port['name']} (written by Port Manager).\n"
+        f"# Starts {port['name']} (written by Frametanium).\n"
         'D="$(cd "$(dirname "$0")" && pwd)"\n'
         f'chmod +x "$D/{rel}" 2>/dev/null\n'
         f'cd "$D{folder}" && exec "./{rel.name}" "$@"\n')
@@ -996,7 +996,7 @@ def tsv(rows, keys):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "PortManager/2.0"
+    server_version = "Frametanium/2.0"
 
     def log_message(self, fmt, *args):
         sys.stderr.write("%s %s\n" % (self.address_string(), fmt % args))
@@ -1169,7 +1169,7 @@ def main():
     threading.Thread(target=checker, daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", int(cfg["port"])), Handler)
     server.daemon_threads = True
-    print(f"Port Manager on port {cfg['port']}", flush=True)
+    print(f"Frametanium on port {cfg['port']}", flush=True)
     server.serve_forever()
 
 

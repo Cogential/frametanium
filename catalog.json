@@ -32,7 +32,7 @@
     "rom_hint": "Send your Majora's Mask ROM with Frame Inbox, or put a .z64 in ~/.local/share/2ship.",
     "run_sh": [
       "#!/bin/sh",
-      "# Steam Frame launcher for 2 Ship 2 Harkinian (written by Port Manager). Data, saves and the built mm.o2r",
+      "# Steam Frame launcher for 2 Ship 2 Harkinian (written by Frametanium). Data, saves and the built mm.o2r",
       "# live in ~/.local/share/2ship, so reinstalling this folder keeps them.",
       "D=\"$(cd \"$(dirname \"$0\")\" && pwd)\"",
       "export SHIP_HOME=\"${SHIP_HOME:-$HOME/.local/share/2ship}\"",

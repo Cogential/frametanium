@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Port Manager</title>
+<title>Frametanium</title>
 <style>
   :root { --bg: #0f1216; --panel: #181d23; --line: #2a313a; --text: #e8edf2; --muted: #93a0ad;
           --accent: #4fa3ff; --ok: #4cc38a; --warn: #f0b429; --bad: #f2555a; }
@@ -49,7 +49,7 @@
 </head>
 <body>
 <main>
-  <div class="top"><h1>Port Manager</h1>
+  <div class="top"><h1>Frametanium</h1>
     <div class="row"><button id="updateall">Update all</button><button id="refresh">Check for updates</button></div></div>
   <p class="sub">Install and update Steam Frame apps and ports from their GitHub releases. Saves and ROMs are kept.</p>
   <p class="notice" id="notice" hidden></p>
@@ -88,7 +88,7 @@ const open = {};                      // app ids whose Edit section is open, kep
 async function get(path) {
   const r = await fetch(path, { headers: hdr() });
   if (r.status === 401) {
-    key = prompt("Port Manager password") || "";
+    key = prompt("Frametanium password") || "";
     try { localStorage.setItem("pmKey", key); } catch (e) {}
     return get(path);
   }

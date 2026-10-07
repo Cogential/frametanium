@@ -1,0 +1,11 @@
+[Unit]
+Description=Frametanium (installs and updates Steam Frame apps and ports from GitHub releases)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 %h/.local/share/frametanium/service/manager.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -10,15 +10,15 @@ OUT=../dist/app
 mkdir -p "$OUT/lib"
 "$LLVM/clang" --target=aarch64-linux-gnu --sysroot="$SYSROOT" -fuse-ld=lld -O2 -Wall -march=armv8.2-a \
     -I"$SDL/include/SDL2" -D_REENTRANT app.c -L"$SDL/lib" -lSDL2-2.0 -Wl,-rpath,'$ORIGIN/lib' \
-    -o "$OUT/port-manager"
-"$LLVM/llvm-strip" "$OUT/port-manager"
+    -o "$OUT/frametanium"
+"$LLVM/llvm-strip" "$OUT/frametanium"
 cp -L "$SDL/lib/libSDL2-2.0.so.0" "$OUT/lib/"
 cat > "$OUT/run.sh" <<'RUN'
 #!/bin/sh
 # Steam launches this. FrameDrop-style installs lose the executable bit, so restore it first.
 cd "$(dirname "$0")" || exit 1
-chmod +x ./port-manager 2>/dev/null
-exec ./port-manager "$@"
+chmod +x ./frametanium 2>/dev/null
+exec ./frametanium "$@"
 RUN
 chmod +x "$OUT/run.sh"
 echo "built $OUT"

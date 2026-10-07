@@ -1,4 +1,4 @@
-/* Port Manager for the headset: a controller-driven front end for the Port Manager service (manager.py), which
+/* Frametanium for the headset: a controller-driven front end for the Frametanium service (manager.py), which
  * does the downloading and installing. It talks to the service on 127.0.0.1 with plain HTTP and reads simple
  * tab-separated replies.
  *
@@ -130,7 +130,7 @@ static void fill(int x, int y, int w, int h, Uint32 rgb) {
 
 static void read_port(void) {
     char path[512], buf[2048];
-    snprintf(path, sizeof path, "%s/.config/port-manager/config.json", getenv("HOME") ? getenv("HOME") : "");
+    snprintf(path, sizeof path, "%s/.config/frametanium/config.json", getenv("HOME") ? getenv("HOME") : "");
     FILE* f = fopen(path, "r");
     if (!f) return;
     size_t n = fread(buf, 1, sizeof buf - 1, f);
@@ -256,7 +256,7 @@ static int load_releases(const char* id, Release* rels, char* err, size_t errsz)
     char* body = http("GET", path, 25);
     err[0] = '\0';
     if (!body) {
-        snprintf(err, errsz, "Port Manager service isn't running.");
+        snprintf(err, errsz, "Frametanium service isn't running.");
         return 0;
     }
     int n = 0;
@@ -306,7 +306,7 @@ static int inspect(const char* repo, Found* fd, char* err, size_t errsz) {
     memset(fd, 0, sizeof *fd);
     err[0] = '\0';
     if (!body) {
-        snprintf(err, errsz, "The Port Manager service didn't answer.");
+        snprintf(err, errsz, "The Frametanium service didn't answer.");
         return 0;
     }
     char* save;
@@ -348,7 +348,7 @@ static void post(const char* path, char* err, size_t errsz) {
     if (err) {
         err[0] = '\0';
         if (!body)
-            snprintf(err, errsz, "The Port Manager service didn't answer.");
+            snprintf(err, errsz, "The Frametanium service didn't answer.");
         else if (body[0] == '!' && body[1] == '\t')
             snprintf(err, errsz, "%.*s", (int)strcspn(body + 2, "\n"), body + 2);
         else if (strstr(body, "\"error\": \""))
@@ -372,7 +372,7 @@ static void try_start_service(void) {
             dup2(devnull, 1);
             dup2(devnull, 2);
         }
-        execlp("systemctl", "systemctl", "--user", "start", "frame-port-manager.service", (char*)NULL);
+        execlp("systemctl", "systemctl", "--user", "start", "frametanium.service", (char*)NULL);
         _exit(127);
     }
     if (pid > 0) waitpid(pid, NULL, 0);
@@ -435,13 +435,13 @@ static int scroll_first(int sel, int max_rows) {
 
 static void draw_list(App* apps, int n, int sel, const char* banner, Uint32 banner_rgb) {
     clear();
-    int m = W / 20, y = title("Port Manager");
+    int m = W / 20, y = title("Frametanium");
     if (banner && *banner) {
         text_fit(banner, m, y, S, W - 2 * m, banner_rgb);
         y += 14 * S;
     }
     if (n < 0) {
-        text("Starting the Port Manager service...", m, y + 8 * S, S, MUTED);
+        text("Starting the Frametanium service...", m, y + 8 * S, S, MUTED);
         legend("B Close");
         SDL_RenderPresent(ren);
         return;
@@ -594,7 +594,7 @@ static void draw_found(const Found* fd, const char* err) {
         text(line, m, y, S, MUTED);
         y += 14 * S;
     }
-    text_wrap("Port Manager unpacks it and either adds it to your Steam library or, if it comes with an install.sh, "
+    text_wrap("Frametanium unpacks it and either adds it to your Steam library or, if it comes with an install.sh, "
               "runs that. Only add apps you trust.", m, y, S, W - 2 * m, 3, MUTED);
     y += 40 * S;
     if (err && *err) text_wrap(err, m, y, S, W - 2 * m, 3, BAD);
@@ -661,7 +661,7 @@ int main(void) {
             return 1;
         }
         Uint32 flags = getenv("PM_WINDOWED") ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP;
-        SDL_Window* win = SDL_CreateWindow("Port Manager", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1280, 720, flags);
+        SDL_Window* win = SDL_CreateWindow("Frametanium", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1280, 720, flags);
         if (!win) return 1;
         ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
         if (!ren) ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE);
@@ -745,7 +745,7 @@ int main(void) {
             if (sel > napps) sel = napps > 0 ? napps : 0;
             snprintf(banner, sizeof banner, "%s",
                      napps < 0 && tried_start && SDL_GetTicks() > 8000
-                         ? "The Port Manager service isn't running. Restart the Frame and try again."
+                         ? "The Frametanium service isn't running. Restart the Frame and try again."
                          : notice);
         }
         App* cur = sel < napps ? &apps[sel] : NULL;
@@ -950,7 +950,7 @@ int main(void) {
                 draw_wait(fd.name, "Adding it...");
                 char* body = http("POST", path, 30);
                 if (!body) {
-                    snprintf(err, sizeof err, "The Port Manager service didn't answer.");
+                    snprintf(err, sizeof err, "The Frametanium service didn't answer.");
                 } else if (body[0] == '!') {
                     snprintf(err, sizeof err, "%.*s", (int)strcspn(body + 2, "\n"), body + 2);
                 } else {
