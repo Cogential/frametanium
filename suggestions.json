@@ -1,0 +1,22 @@
+[
+  {
+    "repo": "sasaken1102r/frame-perf-overlay",
+    "name": "Frame Perf Overlay",
+    "note": "fps, CPU/GPU, temperatures and battery in the SteamVR dashboard"
+  },
+  {
+    "repo": "sasaken1102r/frame-mic-tuner",
+    "name": "Frame Mic Tuner",
+    "note": "Switch the mic's echo cancellation and noise suppression from the dashboard"
+  },
+  {
+    "repo": "beko-kerbecotton/framecolor",
+    "name": "Frame Color",
+    "note": "Adjust the display's colours from the dashboard (restarts SteamVR)"
+  },
+  {
+    "repo": "stephen-moskal/openmw-vr-steam-frame",
+    "name": "OpenMW-VR",
+    "note": "Morrowind in VR on the headset; needs Morrowind installed from Steam"
+  }
+]

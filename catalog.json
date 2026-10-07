@@ -7,9 +7,15 @@
     "type": "zip",
     "gameid": "Ocarina_of_Time_SoH",
     "launch": "run.sh",
-    "keep": ["*.z64", "*.n64", "*.v64"],
+    "keep": [
+      "*.z64",
+      "*.n64",
+      "*.v64"
+    ],
     "data": "~/.local/share/soh",
-    "rom_hint": "Send your Ocarina of Time ROM with Frame Inbox, or put a .z64 in ~/.local/share/soh."
+    "rom_hint": "Send your Ocarina of Time ROM with Frame Inbox, or put a .z64 in ~/.local/share/soh.",
+    "prereleases": true,
+    "mode": "game"
   },
   {
     "id": "2ship",
@@ -19,7 +25,9 @@
     "type": "appimage",
     "gameid": "Majoras_Mask_2Ship",
     "launch": "run.sh",
-    "keep": ["*.z64"],
+    "keep": [
+      "*.z64"
+    ],
     "data": "~/.local/share/2ship",
     "rom_hint": "Send your Majora's Mask ROM with Frame Inbox, or put a .z64 in ~/.local/share/2ship.",
     "run_sh": [
@@ -35,6 +43,8 @@
       "fi",
       "chmod +x \"$D/usr/bin/2s2h.elf\" 2>/dev/null",
       "cd \"$D/usr/bin\" && exec ./2s2h.elf \"$@\""
-    ]
+    ],
+    "prereleases": true,
+    "mode": "game"
   }
 ]

@@ -18,7 +18,7 @@ $SSH "$USER_AT" true || { echo "Can't reach $HOST over SSH. Is the Frame on and 
 
 echo "== Service"
 $SSH "$USER_AT" 'rm -rf ~/.cache/frame-port-manager-src && mkdir -p ~/.cache/frame-port-manager-src'
-rsync -a -e "$SSH" manager.py page.html catalog.json frame-port-manager.service install.sh art "$USER_AT:.cache/frame-port-manager-src/"
+rsync -a -e "$SSH" manager.py page.html catalog.json suggestions.json frame-port-manager.service install.sh art "$USER_AT:.cache/frame-port-manager-src/"
 $SSH "$USER_AT" 'sh ~/.cache/frame-port-manager-src/install.sh'
 
 echo "== Headset app"

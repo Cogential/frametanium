@@ -1,32 +1,40 @@
 # Port Manager for the Steam Frame
 
-Installs and updates native Steam Frame ports straight from their GitHub releases, from the headset or a browser.
+Installs and updates Steam Frame apps and ports straight from their GitHub releases, like Obtainium: add any repo,
+and Port Manager keeps it up to date. Works from the headset or a browser.
 
-- **Install, update, or pick any version** of each port in the catalog. Pre-releases count.
-- **Keeps your stuff:** saves live outside the install folder, and ROMs placed next to `run.sh` are carried over.
-- **One-step rollback** to the version you had before (the previous install is kept).
-- Fixes executable bits, unpacks AppImages (no FUSE needed), writes a launcher when a port needs one,
-  registers the game with Steam (`steam-client-create-shortcut`, Steam Linux Runtime 4 arm64) and adds library art.
-- Won't touch a game that's running.
+- **Add any GitHub repo** by typing `owner/name` (or pasting a link) on the headset's on-screen keyboard, from the
+  browser page, or by picking a suggestion made for the Frame. The built-in ports (Ship of Harkinian, 2 Ship 2
+  Harkinian) are there from the start.
+- **Picks the right download:** ARM64 Linux builds (`aarch64`/`arm64`, "steamframe"); checksums, Windows, macOS,
+  Android and x86 files are passed over. You can choose another one when adding. Zips, tarballs (gz/xz/bz2/zst),
+  AppImages and single programs all work.
+- **Two ways to install,** picked from the download unless you choose:
+  - *Library app:* unpacked into `~/devkit-game/<name>`, given a `run.sh` (its own, or one that starts the ARM64
+    program it finds), added to the Steam library with art (the repo's GitHub card and the owner's avatar).
+  - *Its installer:* when the download has `install.sh` (or `contrib/install.sh`, `setup.sh`), it's unpacked into
+    `~/.local/share/port-manager/apps/<id>` and that script runs, for tools such as SteamVR overlays. Removing the app
+    runs its uninstaller when it has one.
+- **Install, update, update all, or pick any version.** Pre-releases are skipped unless you turn them on for an app
+  (they're on for apps that only have pre-releases).
+- **Keeps your stuff:** saves live outside the install folder, ROMs placed next to `run.sh` are carried over, and
+  the previous install is kept for a **one-step rollback**.
+- Won't touch an app that's running. Only add apps you trust: their programs and installers run as your user.
 
 ## Use it
-- **In the headset:** open **Port Manager** in the library. D-pad to choose, **A** install/update, **Y** choose a
-  version, **X** previous version, **Start** check for updates, **B** close.
-- **From a phone or PC:** `http://<frame-ip>:8643`.
+- **In the headset:** open **Port Manager** in the library. D-pad to choose, **A** open an app (install/update,
+  versions, previous version, pre-releases, remove), **Y** add an app, **Select** update all, **Start** check for
+  updates, **B** back/close.
+- **From a phone or PC:** `http://<frame-ip>:8643` (add apps, edit name/install style/program, remove).
 
 Updates are checked every 6 hours and on demand.
 
-## Catalog
-`catalog.json` lists the built-in ports:
-
-| Port | Repo | Download |
-|---|---|---|
-| Ocarina of Time (Ship of Harkinian) | Cogential/Shipwright-frame | `soh-steam-frame-arm64.zip` |
-| Majora's Mask (2 Ship 2 Harkinian) | Cogential/2ship2harkinian-frame | `*arm64.appimage` (unpacked, launcher written) |
-
-Add your own in `~/.config/port-manager/catalog.json` on the Frame (same fields; the same `id` overrides a built-in
-entry). A port's release needs a zip whose top folder holds `run.sh`, or an AppImage plus a `run_sh` launcher in the
-catalog.
+## Files
+- `catalog.json`: the built-in ports.
+- `suggestions.json`: apps offered on the Add screen.
+- `~/.config/port-manager/catalog.json` on the Frame: the apps you added and changes to built-in ones
+  (`{"id": "soh", "hidden": true}` hides one; adding its repo again brings it back).
+- `~/.config/port-manager/installed.json`: installed versions.
 
 ## Private repos
 GitHub only shows releases of private repos to signed-in users. Either make the port repos public (they contain no

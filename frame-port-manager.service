@@ -1,5 +1,5 @@
 [Unit]
-Description=Port Manager (installs and updates Steam Frame ports from GitHub releases)
+Description=Port Manager (installs and updates Steam Frame apps and ports from GitHub releases)
 After=network-online.target
 
 [Service]

@@ -4,7 +4,7 @@ set -e
 here="$(cd "$(dirname "$0")" && pwd)"
 dest="$HOME/.local/share/frame-port-manager"
 mkdir -p "$dest" "$HOME/.config/systemd/user"
-cp "$here/manager.py" "$here/page.html" "$here/catalog.json" "$dest/"
+cp "$here/manager.py" "$here/page.html" "$here/catalog.json" "$here/suggestions.json" "$dest/"
 rm -rf "$dest/art" && cp -r "$here/art" "$dest/art"
 cp "$here/frame-port-manager.service" "$HOME/.config/systemd/user/"
 systemctl --user daemon-reload

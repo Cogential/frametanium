@@ -12,41 +12,65 @@
          font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   main { max-width: 760px; margin: 0 auto; padding: 20px 16px 48px; }
   h1 { font-size: 1.5rem; margin: 0 0 4px; }
-  .sub { color: var(--muted); margin: 0 0 20px; }
+  h2 { font-size: 1.05rem; margin: 0 0 10px; }
+  a { color: var(--accent); }
+  .sub { color: var(--muted); margin: 0 0 16px; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
   .top { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; }
   .name { font-weight: 650; font-size: 1.05rem; }
+  .repo { color: var(--muted); font-size: .85rem; text-decoration: none; }
   .badge { font-size: .85rem; padding: 2px 10px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
   .badge.update { color: var(--warn); border-color: var(--warn); }
   .badge.ok { color: var(--ok); border-color: var(--ok); }
   .badge.error { color: var(--bad); border-color: var(--bad); }
   .badge.busy { color: var(--accent); border-color: var(--accent); }
   .ver { color: var(--muted); font-size: .92rem; margin: 6px 0 10px; }
-  .msg { font-size: .92rem; margin: 8px 0 0; }
+  .msg { font-size: .92rem; margin: 8px 0 0; overflow-wrap: anywhere; }
   .msg.error { color: var(--bad); } .msg.done { color: var(--ok); }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .grow { flex: 1; min-width: 200px; }
   button, select, input { font: inherit; border-radius: 8px; }
   button { padding: 8px 14px; border: 1px solid var(--line); background: #222a33; color: var(--text); cursor: pointer; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--bad); }
   button:disabled { opacity: .5; cursor: default; }
   select, input { background: var(--bg); color: var(--text); border: 1px solid var(--line); padding: 8px 10px; max-width: 100%; }
   progress { width: 100%; height: 8px; margin-top: 10px; accent-color: var(--accent); }
   details summary { cursor: pointer; color: var(--muted); }
+  details[open] summary { margin-bottom: 10px; }
   .hint { color: var(--muted); font-size: .9rem; }
-  input[type=password] { flex: 1; min-width: 200px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .chip { text-align: left; padding: 8px 12px; max-width: 100%; }
+  .chip small { display: block; color: var(--muted); font-size: .8rem; }
+  .found { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .notice { color: var(--ok); margin: 0 0 12px; }
+  label { display: flex; gap: 8px; align-items: center; }
 </style>
 </head>
 <body>
 <main>
-  <div class="top"><h1>Port Manager</h1><button id="refresh">Check for updates</button></div>
-  <p class="sub">Install and update your Steam Frame ports from their GitHub releases. Saves and ROMs are kept.</p>
-  <div id="ports"></div>
+  <div class="top"><h1>Port Manager</h1>
+    <div class="row"><button id="updateall">Update all</button><button id="refresh">Check for updates</button></div></div>
+  <p class="sub">Install and update Steam Frame apps and ports from their GitHub releases. Saves and ROMs are kept.</p>
+  <p class="notice" id="notice" hidden></p>
+
+  <div class="panel">
+    <h2>Add an app from GitHub</h2>
+    <div class="row"><input id="repo" class="grow" placeholder="owner/name or a github.com link" autocomplete="off">
+      <button id="lookup">Look up</button></div>
+    <p class="msg error" id="adderr" hidden></p>
+    <div id="found" class="found" hidden></div>
+    <div class="chips" id="suggest"></div>
+  </div>
+
+  <div id="apps"></div>
+
   <div class="panel">
     <details>
       <summary>Settings</summary>
       <p class="hint">Private repos need a GitHub token with read access to their contents (a fine-grained token
         limited to those repos is enough). It's stored only on the Frame and never shown again.</p>
-      <div class="row"><input id="token" type="password" placeholder="github_pat_…" autocomplete="off">
+      <div class="row"><input id="token" type="password" class="grow" placeholder="github_pat_…" autocomplete="off">
         <button id="savetoken">Save token</button></div>
       <p class="hint" id="tokenstate"></p>
     </details>
@@ -59,6 +83,7 @@ const $ = id => document.getElementById(id);
 const q = encodeURIComponent;
 const hdr = () => key ? { "X-Key": key } : {};
 const releases = {};
+const open = {};                      // app ids whose Edit section is open, kept across redraws
 
 async function get(path) {
   const r = await fetch(path, { headers: hdr() });
@@ -73,6 +98,11 @@ async function post(path, body) {
   const r = await fetch(path, { method: "POST", headers: hdr(), body });
   return r.json();
 }
+function el(tag, props = {}, ...kids) {
+  const e = Object.assign(document.createElement(tag), props);
+  e.append(...kids);
+  return e;
+}
 
 function badge(p) {
   if (p.status === "downloading" || p.status === "installing") return ["busy", p.status === "downloading" ? "Downloading" : "Installing"];
@@ -81,6 +111,7 @@ function badge(p) {
   if (p.status === "error") return ["error", "Problem"];
   return ["", "Not installed"];
 }
+const modeText = { game: "In the Steam library", installer: "Set up by its installer", auto: "Decided on first install" };
 
 async function loadReleases(p, sel) {
   if (!releases[p.id]) {
@@ -89,19 +120,18 @@ async function loadReleases(p, sel) {
   }
   sel.innerHTML = "";
   for (const r of releases[p.id]) {
-    const o = document.createElement("option");
-    o.value = r.tag;
-    o.textContent = `${r.tag}${r.tag === p.latest ? " (latest)" : ""}${r.tag === p.installed ? " (installed)" : ""} · ${r.date}`;
-    sel.append(o);
+    sel.append(el("option", { value: r.tag, textContent:
+      `${r.tag}${r.prerelease ? " (pre-release)" : ""}${r.tag === p.latest ? " (latest)" : ""}${r.tag === p.installed ? " (installed)" : ""} · ${r.date}` }));
   }
+  if (!sel.options.length) sel.append(el("option", { textContent: "No versions" }));
 }
 
 function card(p, busy) {
-  const div = document.createElement("div");
-  div.className = "panel";
+  const div = el("div", { className: "panel" });
   const [cls, label] = badge(p);
   div.innerHTML = `
-    <div class="top"><span class="name"></span><span class="badge ${cls}">${label}</span></div>
+    <div class="top"><div><span class="name"></span><br><a class="repo" target="_blank" rel="noopener"></a></div>
+      <span class="badge ${cls}">${label}</span></div>
     <div class="ver"></div>
     <div class="row">
       <button class="primary act"></button>
@@ -109,12 +139,28 @@ function card(p, busy) {
       <button class="inst">Install this version</button>
       <button class="back">Previous version</button>
     </div>
-    <p class="msg"></p>`;
+    <p class="msg"></p>
+    <details class="edit"><summary>Edit</summary>
+      <div class="row"><input class="ename grow" placeholder="Name"></div>
+      <p></p>
+      <label><input type="checkbox" class="epre"> Include pre-releases</label>
+      <p></p>
+      <div class="row">How it's installed:
+        <select class="emode"><option value="auto">Decide on first install</option>
+          <option value="game">Add to the Steam library</option><option value="installer">Run its install.sh</option></select></div>
+      <p></p>
+      <div class="row"><input class="eprog grow" placeholder="Program to start, e.g. bin/mygame (blank: find it)"></div>
+      <p class="hint">Used for library apps without their own run.sh. Takes effect on the next install.</p>
+      <div class="row"><button class="save">Save</button><button class="danger rm">Remove</button></div>
+    </details>`;
   div.querySelector(".name").textContent = p.name;
+  const link = div.querySelector(".repo");
+  link.textContent = p.repo; link.href = `https://github.com/${p.repo}`;
   div.querySelector(".ver").textContent =
-    `Installed: ${p.installed === null ? "—" : p.installed}  ·  Latest: ${p.latest === null ? "—" : p.latest}`;
+    `Installed: ${p.installed === null ? "—" : p.installed}  ·  Latest: ${p.latest === null ? "—" : p.latest}  ·  ${modeText[p.mode] || p.mode}`;
   const act = div.querySelector(".act");
-  act.textContent = p.status === "not installed" ? "Install" : p.status === "update available" ? "Update" : "Reinstall";
+  act.textContent = p.status === "not installed" || p.status === "error" && !p.installed ? "Install"
+    : p.status === "update available" ? "Update" : "Reinstall";
   const working = p.status === "downloading" || p.status === "installing";
   for (const b of div.querySelectorAll("button")) b.disabled = busy;
   div.querySelector(".back").disabled = busy || !p.can_rollback;
@@ -126,13 +172,88 @@ function card(p, busy) {
   div.querySelector(".back").onclick = () => post(`/api/rollback?id=${q(p.id)}`).then(poll);
   const msg = div.querySelector(".msg");
   msg.textContent = p.message;
-  msg.className = "msg " + (p.status === "error" || (p.message && p.job === "error") ? "error" : p.job === "done" ? "done" : "");
+  msg.className = "msg " + (p.job === "error" || p.status === "error" ? "error" : p.job === "done" ? "done" : "");
   if (working) {
-    const bar = document.createElement("progress");
-    bar.max = 1; bar.value = p.progress;
-    div.append(bar);
+    const bar = el("progress", { max: 1, value: p.progress });
+    div.insertBefore(bar, msg);
   }
+  const edit = div.querySelector(".edit");
+  edit.open = !!open[p.id];
+  edit.ontoggle = () => { open[p.id] = edit.open; };
+  div.querySelector(".ename").value = p.name;
+  div.querySelector(".epre").checked = p.prereleases;
+  div.querySelector(".emode").value = p.mode;
+  div.querySelector(".eprog").value = p.program || "";
+  div.querySelector(".save").onclick = async () => {
+    const pre = div.querySelector(".epre").checked ? 1 : 0;
+    await post(`/api/settings?id=${q(p.id)}&name=${q(div.querySelector(".ename").value)}&prereleases=${pre}` +
+      `&mode=${q(div.querySelector(".emode").value)}&program=${q(div.querySelector(".eprog").value)}`);
+    delete releases[p.id]; last = ""; poll();
+  };
+  div.querySelector(".rm").onclick = async () => {
+    const what = p.installed ? " Its files are deleted too (saves and settings kept elsewhere stay)." : "";
+    if (!confirm(`Remove ${p.name}?${what}`)) return;
+    await post(`/api/remove?id=${q(p.id)}`);
+    delete open[p.id]; setTimeout(poll, 600);
+  };
   return div;
+}
+
+// ---- adding apps
+
+async function lookup(repo, name) {
+  $("adderr").hidden = true;
+  $("found").hidden = false;
+  $("found").textContent = "Looking it up…";
+  const info = await get(`/api/inspect?repo=${q(repo)}`);
+  if (info.error) {
+    $("found").hidden = true;
+    $("adderr").textContent = info.error; $("adderr").hidden = false;
+    return;
+  }
+  const f = $("found");
+  f.innerHTML = "";
+  f.append(
+    el("div", { className: "name", textContent: info.name }),
+    el("a", { className: "repo", href: `https://github.com/${info.repo}`, target: "_blank", textContent: info.repo }),
+    el("p", { className: "hint", textContent: (info.description || "") }),
+    el("p", { className: "hint", textContent: `Latest: ${info.tag} · ${info.date}${info.prereleases ? " (pre-release; pre-releases will be included)" : ""}` }));
+  if (info.existing) {
+    f.append(el("p", { className: "msg done", textContent: "It's already on your list." }));
+    return;
+  }
+  const nameIn = el("input", { className: "grow", value: name || info.name });
+  const assetSel = el("select");
+  for (const a of info.assets)
+    assetSel.append(el("option", { value: a.name, textContent: `${a.name} (${(a.size / 1048576).toFixed(1)} MB)${a.arm64 ? "" : " – not ARM64"}` }));
+  const modeSel = el("select");
+  for (const [v, t] of [["auto", "Decide from the download"], ["game", "Add to the Steam library"], ["installer", "Run its install.sh"]])
+    modeSel.append(el("option", { value: v, textContent: t }));
+  const add = async install => {
+    const r = await post(`/api/add?repo=${q(info.repo)}&asset=${q(assetSel.value)}&name=${q(nameIn.value)}&mode=${q(modeSel.value)}&install=${install}`);
+    if (r.error) { $("adderr").textContent = r.error; $("adderr").hidden = false; return; }
+    f.hidden = true; $("repo").value = ""; last = ""; poll(); loadSuggestions();
+  };
+  f.append(
+    el("div", { className: "row" }, "Name", nameIn), el("p"),
+    el("div", { className: "row" }, "Download", assetSel), el("p"),
+    el("div", { className: "row" }, "Install", modeSel), el("p"),
+    el("div", { className: "row" },
+      el("button", { className: "primary", textContent: "Add and install", onclick: () => add(1) }),
+      el("button", { textContent: "Add", onclick: () => add(0) })));
+  if (!info.assets.some(a => a.arm64))
+    f.append(el("p", { className: "msg error", textContent: "None of its downloads say ARM64, so they may not run on the Frame." }));
+}
+
+async function loadSuggestions() {
+  const s = await get("/api/suggestions");
+  const box = $("suggest");
+  box.innerHTML = "";
+  for (const x of (s.suggestions || []).filter(x => !x.added)) {
+    box.append(el("button", { className: "chip", onclick: () => { $("repo").value = x.repo; lookup(x.repo, x.name); } },
+      x.name, el("small", { textContent: x.note })));
+  }
+  if (box.children.length) box.prepend(el("div", { className: "hint", style: "width:100%", textContent: "Suggested for the Frame:" }));
 }
 
 let timer = null, last = "";
@@ -141,20 +262,27 @@ async function poll() {
   const snapshot = JSON.stringify(s);
   if (snapshot !== last) {          // redraw only on changes, so an open version list isn't reset
     last = snapshot;
-    const box = $("ports");
+    const box = $("apps");
     box.innerHTML = "";
-    for (const p of s.ports) box.append(card(p, s.busy));
+    for (const p of s.apps) box.append(card(p, s.busy));
+    const n = s.notice || {};
+    $("notice").hidden = !n.message;
+    $("notice").textContent = n.message || "";
+    $("updateall").disabled = s.busy;
   }
   $("tokenstate").textContent = s.token_set ? "A token is saved." : "No token saved.";
   clearTimeout(timer);
   timer = setTimeout(poll, s.busy ? 700 : 5000);
 }
 
+$("lookup").onclick = () => lookup($("repo").value);
+$("repo").onkeydown = e => { if (e.key === "Enter") lookup($("repo").value); };
 $("refresh").onclick = async () => {
   for (const k in releases) delete releases[k];
   await post("/api/refresh");
   setTimeout(poll, 2500);
 };
+$("updateall").onclick = () => post("/api/update_all").then(() => setTimeout(poll, 300));
 $("savetoken").onclick = async () => {
   await post("/api/token", $("token").value.trim());
   $("token").value = "";
@@ -162,6 +290,7 @@ $("savetoken").onclick = async () => {
   setTimeout(poll, 2500);
 };
 poll();
+loadSuggestions();
 </script>
 </body>
 </html>
