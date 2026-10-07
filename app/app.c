@@ -3,11 +3,11 @@
  * tab-separated replies.
  *
  * Screens: the app list; an app's menu (install/update, versions, previous version, pre-releases, remove); adding
- * an app (type a GitHub repo on an on-screen keyboard, paste a link, or pick a suggestion); and the found repo,
- * where you pick its download and add it.
+ * an app (type a GitHub repo on an on-screen keyboard, paste a link, or pick a suggestion); discover (new Steam Frame
+ * projects on GitHub with a release to install); and the found repo, where you pick its download and add it.
  *
- * Controls: D-pad/left stick to choose, A select, B back/close, Y add an app, Select update all, Start check for
- * updates. Keyboard: arrows, Enter, Esc, and typing on the on-screen keyboard screen. */
+ * Controls: D-pad/left stick to choose, A select, B back/close, Y add an app, X discover, Select update all, Start
+ * check for updates. Keyboard: arrows, Enter, Esc, and typing on the on-screen keyboard screen. */
 
 #include <SDL.h>
 #include <arpa/inet.h>
@@ -28,6 +28,7 @@
 #define MAX_RELEASES 40
 #define MAX_SUGGEST 32
 #define MAX_ASSETS 16
+#define MAX_DISC 64
 
 typedef struct {
     char id[64], name[128], installed[64], latest[64], status[32], message[256], repo[128], mode[16], job[16];
@@ -43,6 +44,11 @@ typedef struct {
 typedef struct {
     char repo[128], name[128], note[160];
 } Suggestion;
+
+typedef struct {
+    char repo[128], name[128], description[300], tag[64], date[16], asset[128];
+    int stars, arm64, prerelease, is_new;
+} Disc;
 
 typedef struct {
     char repo[128], name[128], description[300], tag[64], date[16], existing[64];
@@ -297,6 +303,41 @@ static int load_suggestions(Suggestion* sug) {
     return n;
 }
 
+/* New Steam Frame projects found on GitHub; running says a search is going, msg is its progress. */
+static int load_discover(Disc* d, int* running, char* msg, size_t msz, int* nnew) {
+    char* body = http("GET", "/api/discover?fmt=tsv", 5);
+    *running = 0;
+    *nnew = 0;
+    msg[0] = '\0';
+    if (!body) return -1;
+    int n = 0;
+    char* save;
+    EACH_LINE(body, line, save) {
+        char* f[11];
+        int k = split(line, f, 11);
+        if (k >= 4 && !strcmp(f[0], "#")) {
+            *running = atoi(f[1]);
+            copy(msg, msz, f[2]);
+            *nnew = atoi(f[3]);
+            continue;
+        }
+        if (k < 10 || n >= MAX_DISC) continue;
+        Disc* x = &d[n++];
+        copy(x->repo, sizeof x->repo, f[0]);
+        copy(x->name, sizeof x->name, f[1]);
+        copy(x->description, sizeof x->description, f[2]);
+        x->stars = atoi(f[3]);
+        copy(x->tag, sizeof x->tag, f[4]);
+        copy(x->date, sizeof x->date, f[5]);
+        copy(x->asset, sizeof x->asset, f[6]);
+        x->arm64 = atoi(f[7]);
+        x->prerelease = atoi(f[8]);
+        x->is_new = atoi(f[9]);
+    }
+    free(body);
+    return n;
+}
+
 /* Looks a repo up; fills fd and returns 1, or writes the problem to err and returns 0. */
 static int inspect(const char* repo, Found* fd, char* err, size_t errsz) {
     char enc[600], path[700];
@@ -433,7 +474,7 @@ static int scroll_first(int sel, int max_rows) {
     return sel >= max_rows ? sel - max_rows + 1 : 0;
 }
 
-static void draw_list(App* apps, int n, int sel, const char* banner, Uint32 banner_rgb) {
+static void draw_list(App* apps, int n, int sel, const char* banner, Uint32 banner_rgb, int disc_new) {
     clear();
     int m = W / 20, y = title("Frametanium");
     if (banner && *banner) {
@@ -450,13 +491,19 @@ static void draw_list(App* apps, int n, int sel, const char* banner, Uint32 bann
     int max_rows = (H - y - 40 * S) / row_h;
     if (max_rows < 1) max_rows = 1;
     int first = scroll_first(sel, max_rows);
-    for (int i = first; i <= n && i < first + max_rows; i++) {
+    for (int i = first; i <= n + 1 && i < first + max_rows; i++) {
         int x = m, w = W - 2 * m;
-        if (i == n) { /* the "add" row */
+        if (i >= n) { /* the "discover" and "add" rows */
             fill(x, y, w, 26 * S, i == sel ? ROW_SEL : ROW);
             if (i == sel) fill(x, y, 3 * S, 26 * S, ACCENT);
-            text("+ Add an app from GitHub", x + 10 * S, y + 9 * S, S, ACCENT);
-            break;
+            char label[100];
+            if (i == n && disc_new > 0)
+                snprintf(label, sizeof label, "* Discover new apps for the Frame  (%d new)", disc_new);
+            else
+                snprintf(label, sizeof label, "%s", i == n ? "* Discover new apps for the Frame" : "+ Add an app from GitHub");
+            text(label, x + 10 * S, y + 9 * S, S, ACCENT);
+            y += 32 * S;
+            continue;
         }
         App* p = &apps[i];
         fill(x, y, w, row_h - 6 * S, i == sel ? ROW_SEL : ROW);
@@ -481,7 +528,7 @@ static void draw_list(App* apps, int n, int sel, const char* banner, Uint32 bann
         }
         y += row_h;
     }
-    legend("A Open   Y Add app   Select Update all   Start Check   B Close");
+    legend("A Open  Y Add  X Discover  Select Update all  Start Check  B Close");
     SDL_RenderPresent(ren);
 }
 
@@ -517,6 +564,49 @@ static void draw_wait(const char* heading, const char* what) {
     clear();
     int m = W / 20, y = title(heading);
     text_fit(what, m, y + 8 * S, S, W - 2 * m, MUTED);
+    SDL_RenderPresent(ren);
+}
+
+static void draw_discover(const Disc* d, int n, int sel, int running, const char* msg, const char* err) {
+    clear();
+    int m = W / 20, y = title("Discover new apps for the Frame");
+    const char* sub = running ? (msg[0] ? msg : "Searching GitHub for Steam Frame projects...")
+                      : msg[0] ? msg : "Steam Frame projects on GitHub with a release you can install.";
+    text_fit(sub, m, y, S, W - 2 * m, running ? ACCENT : MUTED);
+    y += 16 * S;
+    if (err && *err) {
+        text_fit(err, m, y, S, W - 2 * m, BAD);
+        y += 14 * S;
+    }
+    if (n <= 0) {
+        text(n < 0 ? "The Frametanium service didn't answer." : running ? "" : "Nothing new right now. Start searches again.",
+             m, y + 8 * S, S, MUTED);
+    }
+    int row_h = 50 * S;
+    int max_rows = (H - y - 40 * S) / row_h;
+    if (max_rows < 1) max_rows = 1;
+    int first = scroll_first(sel, max_rows);
+    for (int i = first; i < n && i < first + max_rows; i++) {
+        const Disc* x = &d[i];
+        int w = W - 2 * m, tx = m + 10 * S, ty = y + 8 * S;
+        fill(m, y, w, row_h - 6 * S, i == sel ? ROW_SEL : ROW);
+        if (i == sel) fill(m, y, 3 * S, row_h - 6 * S, ACCENT);
+        int nw = 0;
+        if (x->is_new) {
+            nw = 6 * 8 * S;
+            text("NEW", m + w - 10 * S - 3 * 8 * S, ty, S, ACCENT);
+        }
+        text_fit(x->name, tx, ty, S, w - 20 * S - nw, TXT);
+        ty += 13 * S;
+        if (x->description[0]) text_fit(x->description, tx, ty, S, w - 20 * S, MUTED);
+        ty += 12 * S;
+        char line[400];
+        snprintf(line, sizeof line, "%s   %s%s  %s   %d stars%s", x->repo, x->tag, x->prerelease ? " (pre)" : "", x->date,
+                 x->stars, x->arm64 ? "" : "   not marked ARM64");
+        text_fit(line, tx, ty, S, w - 20 * S, x->arm64 ? MUTED : WARN);
+        y += row_h;
+    }
+    legend("A Look at it   X Not interested   Start Search again   B Back");
     SDL_RenderPresent(ren);
 }
 
@@ -605,7 +695,7 @@ static void draw_found(const Found* fd, const char* err) {
 /* ---------------------------------------------------------------- main */
 
 enum { NONE, UP, DOWN, LEFT, RIGHT, OK, BACK, ADD, UPDATE_ALL, REFRESH, DELETE };
-enum { LIST, MENU, VERSIONS, CONFIRM, ADDING, KEYBOARD, FOUND };
+enum { LIST, MENU, VERSIONS, CONFIRM, ADDING, KEYBOARD, FOUND, DISCOVER };
 
 static int map_button(int b) {
     switch (b) {
@@ -639,13 +729,14 @@ static int map_key(SDL_Keycode k, int typing) {
     case SDLK_a: return ADD;
     case SDLK_u: return UPDATE_ALL;
     case SDLK_r: return REFRESH;
+    case SDLK_x: return DELETE;
     default: return NONE;
     }
 }
 
 int main(void) {
     /* PM_SCREENSHOT=<file.bmp> draws one frame into memory, saves it and exits (testing without a display);
-     * PM_SIZE=WxH sets its size, PM_SCREEN=menu|versions|add|keyboard|found picks the screen (for the first app;
+     * PM_SIZE=WxH sets its size, PM_SCREEN=menu|versions|add|keyboard|found|discover picks the screen (for the first app;
      * PM_REPO is the repo for "found", PM_TYPED the text for "keyboard"). */
     const char* shot = getenv("PM_SCREENSHOT");
     SDL_Surface* shot_surface = NULL;
@@ -675,7 +766,11 @@ int main(void) {
     static Release rels[MAX_RELEASES];
     static Suggestion sug[MAX_SUGGEST];
     static Found fd;
+    static Disc disc[MAX_DISC];
     int napps = -1, sel = 0, nrels = 0, rsel = 0, msel = 0, asel = 0, nsug = 0, tried_start = 0;
+    int ndisc = 0, dsel = 0, disc_running = 0, disc_new = 0, found_from = ADDING;
+    char disc_msg[300] = "";
+    Uint32 next_disc_poll = 0;
     int screen = LIST, kb_row = 1, kb_col = 0, notice_busy = 0;
     char err[300] = "", banner[300] = "", notice[300] = "", entry[256] = "", want_id[64] = "";
     char hint_name[128] = "";
@@ -707,6 +802,8 @@ int main(void) {
             screen = FOUND;
         }
         if (!strcmp(sc, "confirm")) screen = CONFIRM;
+        if (!strcmp(sc, "discover")) screen = DISCOVER;
+        ndisc = load_discover(disc, &disc_running, disc_msg, sizeof disc_msg, &disc_new);
         next_poll = 0xffffffff;
     }
 
@@ -742,24 +839,34 @@ int main(void) {
                         sel = i;
                         want_id[0] = '\0';
                     }
-            if (sel > napps) sel = napps > 0 ? napps : 0;
+            if (sel > napps + 1) sel = napps > 0 ? napps : 0;
             snprintf(banner, sizeof banner, "%s",
                      napps < 0 && tried_start && SDL_GetTicks() > 8000
                          ? "The Frametanium service isn't running. Restart the Frame and try again."
                          : notice);
+        }
+        if (SDL_GetTicks() >= next_disc_poll) {
+            ndisc = load_discover(disc, &disc_running, disc_msg, sizeof disc_msg, &disc_new);
+            next_disc_poll = SDL_GetTicks() + (screen == DISCOVER && disc_running ? 1500 : 30000);
+            if (dsel >= ndisc) dsel = ndisc > 0 ? ndisc - 1 : 0;
         }
         App* cur = sel < napps ? &apps[sel] : NULL;
 
         switch (screen) {
         case LIST:
             if (act == UP && sel > 0) sel--;
-            if (act == DOWN && sel < napps) sel++;
+            if (act == DOWN && sel < napps + 1) sel++;
             if (act == BACK) goto done;
             if (napps < 0) break;
             if (act == OK && cur) {
                 screen = MENU;
                 msel = 0;
                 err[0] = '\0';
+            } else if (act == DELETE || (act == OK && sel == napps)) {
+                screen = DISCOVER;
+                dsel = 0;
+                err[0] = '\0';
+                next_disc_poll = 0;
             } else if (act == ADD || (act == OK && !cur)) {
                 draw_wait("Add an app from GitHub", "Loading suggestions...");
                 nsug = load_suggestions(sug);
@@ -877,6 +984,7 @@ int main(void) {
                     if (inspect(repo, &fd, err, sizeof err)) {
                         if (hint_name[0]) snprintf(fd.name, sizeof fd.name, "%s", hint_name);
                         err[0] = '\0';
+                        found_from = ADDING;
                         screen = FOUND;
                     }
                 }
@@ -884,6 +992,36 @@ int main(void) {
             if (screen == KEYBOARD) SDL_StartTextInput();
             break;
         }
+
+        case DISCOVER:
+            if (act == UP && dsel > 0) dsel--;
+            if (act == DOWN && dsel < ndisc - 1) dsel++;
+            if (act == BACK) {
+                if (disc_new > 0) post("/api/discover/seen", NULL, 0); /* everything listed has now been seen */
+                screen = LIST;
+                next_disc_poll = SDL_GetTicks() + 300;
+            }
+            if (act == REFRESH && !disc_running) {
+                post("/api/discover/refresh", NULL, 0);
+                next_disc_poll = SDL_GetTicks() + 400;
+            }
+            if (act == DELETE && dsel < ndisc) {
+                char enc[300], path[400];
+                urlenc(enc, sizeof enc, disc[dsel].repo);
+                snprintf(path, sizeof path, "/api/discover/hide?repo=%s", enc);
+                post(path, NULL, 0);
+                next_disc_poll = 0;
+            }
+            if (act == OK && dsel < ndisc) {
+                draw_wait(disc[dsel].name, "Looking it up on GitHub...");
+                if (inspect(disc[dsel].repo, &fd, err, sizeof err)) {
+                    snprintf(fd.name, sizeof fd.name, "%s", disc[dsel].name);
+                    err[0] = '\0';
+                    found_from = DISCOVER;
+                    screen = FOUND;
+                }
+            }
+            break;
 
         case KEYBOARD: {
             size_t len = strlen(entry);
@@ -923,6 +1061,7 @@ int main(void) {
                 if (inspect(entry, &fd, err, sizeof err)) {
                     err[0] = '\0';
                     SDL_StopTextInput();
+                    found_from = ADDING;
                     screen = FOUND;
                 }
             }
@@ -930,7 +1069,10 @@ int main(void) {
         }
 
         case FOUND:
-            if (act == BACK) screen = ADDING;
+            if (act == BACK) {
+                screen = found_from;
+                err[0] = '\0';
+            }
             if (fd.existing[0]) {
                 if (act == OK) {
                     snprintf(want_id, sizeof want_id, "%s", fd.existing);
@@ -958,6 +1100,7 @@ int main(void) {
                     screen = LIST;
                     entry[0] = '\0';
                     next_poll = 0;
+                    next_disc_poll = 0;
                 }
                 free(body);
             }
@@ -1006,10 +1149,12 @@ int main(void) {
             draw_keyboard(entry, kb_row, kb_col, err);
         } else if (screen == FOUND) {
             draw_found(&fd, err);
+        } else if (screen == DISCOVER) {
+            draw_discover(disc, ndisc, dsel, disc_running, disc_msg, err);
         } else {
             if (screen != LIST) screen = LIST;
             int is_err = strstr(banner, "isn't running") != NULL;
-            draw_list(apps, napps, sel, banner, is_err ? WARN : OK_C);
+            draw_list(apps, napps, sel, banner, is_err ? WARN : OK_C, disc_new);
         }
         if (shot) {
             SDL_SaveBMP(shot_surface, shot);

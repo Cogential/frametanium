@@ -6,6 +6,12 @@ and Frametanium keeps it up to date. Works from the headset or a browser.
 - **Add any GitHub repo** by typing `owner/name` (or pasting a link) on the headset's on-screen keyboard, from the
   browser page, or by picking a suggestion made for the Frame. The built-in ports (Ship of Harkinian, 2 Ship 2
   Harkinian) are there from the start.
+- **Discover new Frame apps:** every 12 hours (or on demand) it searches GitHub for Steam Frame projects (the
+  `steam-frame` topic, "steam frame" in names and descriptions, and the community's
+  [awesome-steam-frame](https://github.com/kosantosbik/awesome-steam-frame) list) and shows the ones whose latest
+  release has a download it can install, with ones you haven't seen marked **New**. Pick one to look at and add it,
+  or hide it. Without a GitHub token, GitHub allows 60 lookups an hour, so each search checks a batch (keeping some
+  for update checks) and the next search carries on; results are cached and only rechecked when a repo changes.
 - **Picks the right download:** ARM64 Linux builds (`aarch64`/`arm64`, "steamframe"); checksums, Windows, macOS,
   Android and x86 files are passed over. You can choose another one when adding. Zips, tarballs (gz/xz/bz2/zst),
   AppImages and single programs all work.
@@ -23,7 +29,7 @@ and Frametanium keeps it up to date. Works from the headset or a browser.
 
 ## Use it
 - **In the headset:** open **Frametanium** in the library. D-pad to choose, **A** open an app (install/update,
-  versions, previous version, pre-releases, remove), **Y** add an app, **Select** update all, **Start** check for
+  versions, previous version, pre-releases, remove), **Y** add an app, **X** discover new apps, **Select** update all, **Start** check for
   updates, **B** back/close.
 - **From a phone or PC:** `http://<frame-ip>:8643` (add apps, edit name/install style/program, remove).
 
@@ -32,6 +38,8 @@ Updates are checked every 6 hours and on demand.
 ## Files
 - `catalog.json`: the built-in ports.
 - `suggestions.json`: apps offered on the Add screen.
+- `~/.config/frametanium/discover.json`: discovered projects you've seen or hidden; `~/.cache/frametanium/discover.json`
+  caches what each search found.
 - `~/.config/frametanium/catalog.json` on the Frame: the apps you added and changes to built-in ones
   (`{"id": "soh", "hidden": true}` hides one; adding its repo again brings it back).
 - `~/.config/frametanium/installed.json`: installed versions.

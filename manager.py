@@ -130,9 +130,15 @@ def gh_request(url, accept="application/vnd.github+json"):
     return urllib.request.Request(url, headers=headers)
 
 
+_rate = {"core": None, "search": None}  # requests GitHub still allows this hour (or minute, for search)
+
+
 def gh_json(url):
     try:
         with urllib.request.urlopen(gh_request(url), timeout=20) as r:
+            left = r.headers.get("X-RateLimit-Remaining")
+            if left is not None:
+                _rate[r.headers.get("X-RateLimit-Resource") or "core"] = int(left)
             return json.load(r)
     except urllib.error.HTTPError as e:
         if e.code == 404:
@@ -327,6 +333,179 @@ def add_app(repo_text, asset=None, name=None, mode="auto", prereleases=None):
     save_json(USER_CATALOG, entries)
     _releases_cache.clear()
     return pid
+
+
+# ---------------------------------------------------------------- discover
+
+# Finding new Steam Frame projects: GitHub search plus the community's awesome-steam-frame list give the candidates,
+# and each candidate's releases are checked for a download the Frame can install. Without a token GitHub allows 60
+# requests an hour, so the verdicts are cached (and rechecked when the repo changes) and each run checks a batch,
+# leaving room for update checks; repeated runs work through the rest.
+
+DISCOVER_FILE = CONFIG_DIR / "discover.json"      # {"seen": [...], "hidden": [...]}: what the user has looked at
+DISCOVER_CACHE = CACHE_DIR / "discover.json"      # {"repos": {repo: candidate + verdict}, "last_run": time}
+DISCOVER_QUERIES = ['topic:steam-frame', 'topic:steamframe', '"steam frame" in:name,description',
+                    'steamframe in:name,description', '"steam-frame" in:name']
+AWESOME_LISTS = ["kosantosbik/awesome-steam-frame"]
+DISCOVER_EVERY = 12 * 3600
+_discover = {"running": False, "message": "", "lock": threading.Lock()}
+
+
+def awesome_candidates():
+    """GitHub repos linked from the awesome lists, with the list's name and description for them."""
+    out = {}
+    for lst in AWESOME_LISTS:
+        try:
+            req = urllib.request.Request(f"https://raw.githubusercontent.com/{lst}/HEAD/README.md",
+                                         headers={"User-Agent": "frametanium"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                text = r.read(512 * 1024).decode("utf-8", "replace")
+        except OSError:
+            continue
+        for m in re.finditer(r"^\s*[-*] \[([^\]]+)\]\(https://github\.com/([\w.-]+/[\w.-]+?)/?\)\s*-?\s*(.*)$",
+                             text, re.M):
+            out[m.group(2)] = {"repo": m.group(2), "name": m.group(1).strip(), "description": m.group(3).strip(),
+                               "stars": None, "pushed": None, "listed": True}
+    return out
+
+
+def search_candidates():
+    out = {}
+    for q in DISCOVER_QUERIES:
+        url = "https://api.github.com/search/repositories?" + urllib.parse.urlencode(
+            {"q": q, "sort": "updated", "order": "desc", "per_page": 100})
+        try:
+            items = gh_json(url).get("items", [])
+        except RuntimeError:
+            continue
+        for it in items:
+            if it.get("archived") or it.get("fork"):
+                continue
+            out[it["full_name"]] = {
+                "repo": it["full_name"], "name": nice_name(it["name"]),
+                "description": re.sub(r"\s+", " ", it.get("description") or "").strip(),
+                "stars": it.get("stargazers_count", 0), "pushed": it.get("pushed_at"),
+                "topic": q.startswith("topic:"),
+            }
+    return out
+
+
+def check_candidate(c):
+    """Fills in the newest release with a download for the Frame, or "none"."""
+    c["checked"] = int(time.time())
+    c["checked_pushed"] = c.get("pushed")
+    c.pop("release", None)
+    for rel in gh_json(f"https://api.github.com/repos/{c['repo']}/releases?per_page=5"):
+        if rel.get("draft"):
+            continue
+        asset = choose_asset({}, rel.get("assets", []))
+        if asset:
+            c["release"] = {"tag": rel["tag_name"], "date": (rel.get("published_at") or "")[:10],
+                            "asset": asset["name"], "arm64": bool(OUR_CPU.search(asset["name"])),
+                            "prerelease": bool(rel.get("prerelease"))}
+            return
+
+
+def needs_check(c, now):
+    if "checked" not in c:
+        return True
+    if c.get("pushed") and c.get("pushed") != c.get("checked_pushed"):
+        return True
+    return now - c["checked"] > (2 if c.get("release") else 7) * 86400
+
+
+def discover(force=False):
+    """One discovery run; returns False if one is already going or the last one was recent."""
+    if not _discover["lock"].acquire(blocking=False):
+        return False
+    try:
+        cache = load_json(DISCOVER_CACHE, {"repos": {}, "last_run": 0})
+        if not force and time.time() - cache.get("last_run", 0) < DISCOVER_EVERY:
+            return False
+        _discover.update(running=True, message="Searching GitHub for Steam Frame projects...")
+        found = awesome_candidates()
+        for repo, c in search_candidates().items():
+            listed = found.get(repo, {})
+            found[repo] = {**listed, **c, "listed": bool(listed)}
+            if listed:  # the list's hand-written name reads better than one made from the repo name
+                found[repo]["name"] = listed["name"]
+                found[repo]["description"] = c["description"] or listed["description"]
+        repos = cache["repos"]
+        for repo, c in found.items():
+            old = repos.get(repo, {})
+            keep = {k: old[k] for k in ("checked", "checked_pushed", "release") if k in old}
+            if found[repo].get("stars") is None and old.get("stars") is not None:  # list-only entry seen in search before
+                keep.update(stars=old["stars"], pushed=old.get("pushed"))
+            repos[repo] = {**c, **keep}
+        mine = {p["repo"].lower() for p in catalog().values()} | {"cogential/frametanium"}
+        now = time.time()
+        todo = [c for c in repos.values() if c["repo"].lower() not in mine and needs_check(c, now)]
+        # Projects the community listed or tagged first, then the most recently changed.
+        todo.sort(key=lambda c: (not c.get("listed"), not c.get("topic"), c.get("checked", 0) > 0,
+                                 -(time.mktime(time.strptime(c["pushed"][:19], "%Y-%m-%dT%H:%M:%S"))
+                                   if c.get("pushed") else 0)))
+        budget = 150 if config().get("github_token") else 35
+        checked = 0
+        for c in todo[:budget]:
+            if _rate["core"] is not None and _rate["core"] < (100 if config().get("github_token") else 15):
+                break  # leave the rest of the hour for update checks
+            _discover["message"] = f"Checking {c['repo']} ({checked + 1} of {min(len(todo), budget)})..."
+            try:
+                check_candidate(c)
+            except RuntimeError as e:
+                if "not found" not in str(e):
+                    break  # rate limit or offline: try again next run
+                c["checked"], c["checked_pushed"] = int(time.time()), c.get("pushed")  # deleted or renamed
+            checked += 1
+        left = len(todo) - checked
+        cache["last_run"] = int(time.time())
+        save_json(DISCOVER_CACHE, cache)
+        if not left:
+            _discover["message"] = ""
+        elif checked:
+            _discover["message"] = f"Checked {checked} projects; {left} more on the next search (GitHub's hourly limit)."
+        else:
+            _discover["message"] = f"GitHub's hourly limit is used up; {left} projects left to check on the next search."
+        return True
+    finally:
+        _discover["running"] = False
+        _discover["lock"].release()
+
+
+def discovered():
+    """Found projects with a download for the Frame that aren't on the list yet: unseen ones first, then newest."""
+    cache = load_json(DISCOVER_CACHE, {"repos": {}})
+    prefs = load_json(DISCOVER_FILE, {"seen": [], "hidden": []})
+    seen, hidden = {r.lower() for r in prefs["seen"]}, {r.lower() for r in prefs["hidden"]}
+    mine = {p["repo"].lower() for p in catalog().values()} | {"cogential/frametanium"}
+    mine |= {x["repo"].lower() for x in suggestions()}  # already offered as suggestions
+    rows = []
+    for c in cache["repos"].values():
+        rel = c.get("release")
+        if not rel or c["repo"].lower() in mine | hidden:
+            continue
+        rows.append({
+            "repo": c["repo"], "name": c["name"], "description": c.get("description", "")[:300],
+            "stars": c.get("stars") or 0, "tag": rel["tag"], "date": rel["date"], "asset": rel["asset"],
+            "arm64": rel["arm64"], "prerelease": rel["prerelease"], "new": c["repo"].lower() not in seen,
+        })
+    rows.sort(key=lambda r: r["date"], reverse=True)
+    rows.sort(key=lambda r: not r["new"])
+    return rows
+
+
+def discover_mark(repos, key):
+    prefs = load_json(DISCOVER_FILE, {"seen": [], "hidden": []})
+    have = {r.lower() for r in prefs[key]}
+    prefs[key] += [r for r in repos if r and r.lower() not in have]
+    save_json(DISCOVER_FILE, prefs)
+
+
+def start_discover(force=True):
+    if _discover["running"]:
+        return False
+    threading.Thread(target=discover, kwargs={"force": force}, daemon=True).start()
+    return True
 
 
 # ---------------------------------------------------------------- Steam
@@ -1045,7 +1224,7 @@ class Handler(BaseHTTPRequestHandler):
                            "text/plain")
             else:
                 self.reply({"apps": rows, "token_set": bool(config().get("github_token")), "busy": jobs.busy(),
-                            "notice": notice})
+                            "notice": notice, "discover_new": sum(r["new"] for r in discovered())})
         elif url.path == "/api/releases":
             port = catalog().get(arg("id"))
             if not port:
@@ -1071,6 +1250,22 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply("=\t" + head + tsv(info["assets"], ["name", "size", "arm64"]), "text/plain")
             else:
                 self.reply(info)
+        elif url.path == "/api/discover":
+            rows = discovered()
+            cache = load_json(DISCOVER_CACHE, {})
+            if not cache.get("last_run") and not _discover["running"]:
+                start_discover()
+            running = _discover["running"] or not cache.get("last_run")
+            new = sum(r["new"] for r in rows)
+            if fmt == "tsv":
+                message = re.sub(r"[\t\n]+", " ", _discover["message"])
+                head = f"#\t{int(running)}\t{message}\t{new}\n"
+                self.reply(head + (tsv(rows, ["repo", "name", "description", "stars", "tag", "date", "asset",
+                                               "arm64", "prerelease", "new"]) if rows else ""),
+                           "text/plain")
+            else:
+                self.reply({"projects": rows, "running": running, "message": _discover["message"], "new": new,
+                            "last_run": cache.get("last_run", 0)})
         elif url.path == "/api/suggestions":
             have = {p["repo"].lower() for p in catalog().values()}
             rows = [{**s, "added": s["repo"].lower() in have} for s in suggestions()]
@@ -1121,6 +1316,14 @@ class Handler(BaseHTTPRequestHandler):
                 start(install, new)
             self.reply(f"=\t{new}\n" if fmt == "tsv" else {"ok": True, "id": new},
                        "text/plain" if fmt == "tsv" else "application/json")
+        elif url.path == "/api/discover/refresh":
+            self.reply({"ok": start_discover()})
+        elif url.path in ("/api/discover/seen", "/api/discover/hide"):
+            repos = [r for r in arg("repos").split(",") if r] or ([arg("repo")] if arg("repo") else [])
+            if url.path.endswith("seen") and not repos:
+                repos = [r["repo"] for r in discovered()]
+            discover_mark(repos, "seen" if url.path.endswith("seen") else "hidden")
+            self.reply({"ok": True})
         elif url.path == "/api/settings":
             port = catalog().get(pid)
             if not port:
@@ -1158,6 +1361,7 @@ class Handler(BaseHTTPRequestHandler):
 def checker():
     while True:
         refresh(force=True)
+        discover()
         time.sleep(max(1, float(config().get("check_hours", 6))) * 3600)
 
 

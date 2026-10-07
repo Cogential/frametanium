@@ -45,6 +45,11 @@
   .found { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
   .notice { color: var(--ok); margin: 0 0 12px; }
   label { display: flex; gap: 8px; align-items: center; }
+  .disc { border-top: 1px solid var(--line); padding: 12px 0; }
+  .disc:first-child { border-top: 0; padding-top: 4px; }
+  .disc .desc { margin: 4px 0; font-size: .92rem; overflow-wrap: anywhere; }
+  .badge.new { color: var(--accent); border-color: var(--accent); }
+  .warn { color: var(--warn); }
 </style>
 </head>
 <body>
@@ -61,6 +66,15 @@
     <p class="msg error" id="adderr" hidden></p>
     <div id="found" class="found" hidden></div>
     <div class="chips" id="suggest"></div>
+  </div>
+
+  <div class="panel" id="discover">
+    <div class="top"><h2>New for the Frame on GitHub <span class="badge new" id="newcount" hidden></span></h2>
+      <button id="research">Search again</button></div>
+    <p class="hint" id="discstate">Projects made for the Steam Frame with a release you can install. Searched every
+      12 hours.</p>
+    <div id="disclist"></div>
+    <button id="discmore" hidden></button>
   </div>
 
   <div id="apps"></div>
@@ -232,7 +246,7 @@ async function lookup(repo, name) {
   const add = async install => {
     const r = await post(`/api/add?repo=${q(info.repo)}&asset=${q(assetSel.value)}&name=${q(nameIn.value)}&mode=${q(modeSel.value)}&install=${install}`);
     if (r.error) { $("adderr").textContent = r.error; $("adderr").hidden = false; return; }
-    f.hidden = true; $("repo").value = ""; last = ""; poll(); loadSuggestions();
+    f.hidden = true; $("repo").value = ""; last = ""; poll(); loadSuggestions(); loadDiscover();
   };
   f.append(
     el("div", { className: "row" }, "Name", nameIn), el("p"),
@@ -255,6 +269,49 @@ async function loadSuggestions() {
   }
   if (box.children.length) box.prepend(el("div", { className: "hint", style: "width:100%", textContent: "Suggested for the Frame:" }));
 }
+
+// ---- discover
+
+const shownNew = new Set();            // repos that were new when this page opened keep their badge until reload
+let discAll = false, discTimer = null;
+async function loadDiscover() {
+  const d = await get("/api/discover");
+  for (const p of d.projects || []) if (p.new) shownNew.add(p.repo);
+  const box = $("disclist");
+  box.innerHTML = "";
+  const rows = d.projects || [];
+  const show = discAll ? rows : rows.slice(0, 8);
+  for (const p of show) {
+    const lookBtn = el("button", { className: "primary", textContent: "Look at it" });
+    lookBtn.onclick = () => { $("repo").value = p.repo; lookup(p.repo, p.name); $("repo").scrollIntoView({ behavior: "smooth" }); };
+    const hide = el("button", { textContent: "Not interested" });
+    hide.onclick = async () => { await post(`/api/discover/hide?repo=${q(p.repo)}`); loadDiscover(); };
+    const meta = `${p.tag}${p.prerelease ? " (pre-release)" : ""} · ${p.date} · ★ ${p.stars} · ${p.asset}`;
+    box.append(el("div", { className: "disc" },
+      el("div", { className: "top" },
+        el("div", {}, el("span", { className: "name", textContent: p.name + " " }),
+          shownNew.has(p.repo) ? el("span", { className: "badge new", textContent: "New" }) : "",
+          el("br"), el("a", { className: "repo", href: `https://github.com/${p.repo}`, target: "_blank", rel: "noopener", textContent: p.repo }))),
+      el("p", { className: "desc", textContent: p.description || "" }),
+      el("p", { className: "hint", textContent: meta },
+        p.arm64 ? "" : el("span", { className: "warn", textContent: " · doesn't say ARM64, check before installing" })),
+      el("div", { className: "row" }, lookBtn, hide)));
+  }
+  if (!rows.length) box.append(el("p", { className: "hint", textContent: d.running ? "Searching…" : "Nothing new right now." }));
+  $("discmore").hidden = rows.length <= 8;
+  $("discmore").textContent = discAll ? "Show fewer" : `Show all ${rows.length}`;
+  const n = [...shownNew].filter(r => rows.some(p => p.repo === r)).length;
+  $("newcount").hidden = !n;
+  $("newcount").textContent = `${n} new`;
+  $("discstate").textContent = d.running ? (d.message || "Searching GitHub…")
+    : (d.message || "Projects made for the Steam Frame with a release you can install. Searched every 12 hours.");
+  $("research").disabled = d.running;
+  clearTimeout(discTimer);
+  if (d.running) discTimer = setTimeout(loadDiscover, 2000);
+  else if (rows.some(p => p.new)) setTimeout(() => post("/api/discover/seen?repos=" + q(rows.map(p => p.repo).join(","))), 3000);
+}
+$("discmore").onclick = () => { discAll = !discAll; loadDiscover(); };
+$("research").onclick = async () => { await post("/api/discover/refresh"); setTimeout(loadDiscover, 500); };
 
 let timer = null, last = "";
 async function poll() {
@@ -291,6 +348,7 @@ $("savetoken").onclick = async () => {
 };
 poll();
 loadSuggestions();
+loadDiscover();
 </script>
 </body>
 </html>
