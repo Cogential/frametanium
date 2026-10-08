@@ -46,5 +46,23 @@
     ],
     "prereleases": true,
     "mode": "game"
+  },
+  {
+    "id": "starship",
+    "name": "Star Fox 64 (Starship)",
+    "repo": "Cogential/Starship-frame",
+    "asset": "starship-steam-frame-arm64.zip",
+    "type": "zip",
+    "gameid": "Star_Fox_64_Starship",
+    "launch": "run.sh",
+    "keep": [
+      "*.z64",
+      "*.n64",
+      "*.v64"
+    ],
+    "data": "~/.local/share/starship",
+    "rom_hint": "Send your Star Fox 64 ROM (US) with Frame Inbox, or put a .z64 in ~/.local/share/starship.",
+    "prereleases": true,
+    "mode": "game"
   }
 ]
