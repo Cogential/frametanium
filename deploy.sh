@@ -23,8 +23,8 @@ $SSH "$USER_AT" 'sh ~/.cache/frametanium-src/install.sh'
 
 echo "== Headset app"
 rsync -a --delete -e "$SSH" dist/app/ "$USER_AT:devkit-game/$GAMEID/"
-# The app used to be called Port Manager. Its old folder goes; remove the old "Port_Manager" tile from the library by hand.
-$SSH "$USER_AT" 'rm -rf ~/devkit-game/Port_Manager'
+# The app used to be called Port Manager: remove its old folder and library tile.
+$SSH "$USER_AT" '[ ! -e ~/devkit-game/Port_Manager ] || python3 ~/devkit-utils/steamos-delete --delete-title Port_Manager'
 $SSH "$USER_AT" "python3 ~/devkit-utils/steam-client-create-shortcut --parms '{\"gameid\": \"$GAMEID\", \"directory\": \"/home/steamos/devkit-game/$GAMEID\", \"argv\": [\"./run.sh\"], \"env\": {}, \"settings\": {\"compat_tool\": \"SteamLinuxRuntime_4-arm64\", \"steam_play\": \"0\"}}'" >/dev/null
 
 echo "== Library art"
