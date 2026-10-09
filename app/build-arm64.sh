@@ -18,6 +18,9 @@ cat > "$OUT/run.sh" <<'RUN'
 # Steam launches this. FrameDrop-style installs lose the executable bit, so restore it first.
 cd "$(dirname "$0")" || exit 1
 chmod +x ./frametanium 2>/dev/null
+# Steam describes its virtual Xbox pad as "Steam Frame Controllers" (28de:11e0), which SDL has no mapping for,
+# so only some buttons would arrive; without the description SDL maps it as the Xbox pad it is.
+unset SteamVirtualGamepadInfo
 exec ./frametanium "$@"
 RUN
 chmod +x "$OUT/run.sh"
