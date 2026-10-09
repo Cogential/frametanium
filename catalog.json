@@ -64,5 +64,22 @@
     "rom_hint": "Send your Star Fox 64 ROM (US) with Frame Inbox, or put a .z64 in ~/.local/share/starship.",
     "prereleases": true,
     "mode": "game"
+  },
+  {
+    "id": "halo",
+    "name": "Halo: Combat Evolved (OpenCE)",
+    "repo": "Cogential/OpenCE-frame",
+    "asset": "halo-steam-frame-arm64.zip",
+    "type": "zip",
+    "gameid": "Halo_CE",
+    "launch": "run.sh",
+    "keep": [
+      "*.iso",
+      "*.xiso"
+    ],
+    "data": "~/.local/share/halo-ce",
+    "rom_hint": "Needs your Halo: Combat Evolved Xbox disc image: put the .iso in ~/.local/share/halo-ce (or send it with Frame Inbox) and the first start copies its maps out.",
+    "prereleases": true,
+    "mode": "game"
   }
 ]
