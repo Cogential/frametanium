@@ -153,6 +153,7 @@ def gh_json(url):
             raise RuntimeError("GitHub refused the request (token or rate limit). Try again later.") from e
         raise RuntimeError(f"GitHub error {e.code}") from e
     except OSError as e:
+        print(f"GitHub request failed: {url}: {e}", file=sys.stderr, flush=True)
         raise RuntimeError("Can't reach GitHub. Is the Frame online?") from e
     except ValueError as e:  # e.g. a token with a newline or other characters a header can't hold
         raise RuntimeError("The GitHub token isn't valid. Check it in Settings.") from e
@@ -255,6 +256,11 @@ def releases(port, force=False):
             "notes": (rel.get("body") or "")[:4000],
         })
     _releases_cache[key] = (time.time(), out)
+    # Any successful check (an install, the version list) replaces an error left by an earlier one.
+    if port.get("id"):
+        rel = latest_release(port, out)
+        _latest[port["id"]] = (rel["tag"] if rel else None,
+                               None if rel else ("Only pre-releases so far" if out else "No releases for the Frame yet"))
     return out
 
 
@@ -1105,14 +1111,15 @@ _latest = {}  # app id -> (tag, error)
 
 
 def refresh(force=False):
+    """Checks every app for releases. Returns False if any check failed."""
+    ok = True
     for pid, port in catalog().items():
         try:
-            rels = releases(port, force=force)
-            rel = latest_release(port, rels)
-            _latest[pid] = (rel["tag"] if rel else None,
-                            None if rel else ("Only pre-releases so far" if rels else "No releases for the Frame yet"))
+            releases(port, force=force)
         except RuntimeError as e:
             _latest[pid] = (None, str(e))
+            ok = False
+    return ok
 
 
 def app_state():
@@ -1366,10 +1373,17 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def checker():
+    retry = 30
     while True:
-        refresh(force=True)
-        discover()
-        time.sleep(max(1, float(config().get("check_hours", 6))) * 3600)
+        if refresh(force=True):
+            retry = 30
+            discover()
+            time.sleep(max(1, float(config().get("check_hours", 6))) * 3600)
+        else:
+            # Usually the first check at boot, before Wi-Fi is up (a user service can't wait for the network):
+            # try again soon instead of showing the error for hours.
+            time.sleep(retry)
+            retry = min(retry * 2, 30 * 60)
 
 
 def main():
