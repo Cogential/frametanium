@@ -15,7 +15,8 @@
     "data": "~/.local/share/soh",
     "rom_hint": "Send your Ocarina of Time ROM with Frame Inbox, or put a .z64 in ~/.local/share/soh.",
     "prereleases": true,
-    "mode": "game"
+    "mode": "game",
+    "icon_url": "https://raw.githubusercontent.com/Cogential/Shipwright-frame/steam-frame/soh/macosx/sohIcon.png"
   },
   {
     "id": "2ship",
@@ -45,7 +46,8 @@
       "cd \"$D/usr/bin\" && exec ./2s2h.elf \"$@\""
     ],
     "prereleases": true,
-    "mode": "game"
+    "mode": "game",
+    "icon_url": "https://raw.githubusercontent.com/Cogential/2ship2harkinian-frame/claude/focused-brahmagupta-sylmhh/mm/linux/2s2hIcon.png"
   },
   {
     "id": "starship",
@@ -63,7 +65,8 @@
     "data": "~/.local/share/starship",
     "rom_hint": "Send your Star Fox 64 ROM (US) with Frame Inbox, or put a .z64 in ~/.local/share/starship.",
     "prereleases": true,
-    "mode": "game"
+    "mode": "game",
+    "icon_url": "https://raw.githubusercontent.com/Cogential/Starship-frame/steam-frame/logo.png"
   },
   {
     "id": "halo",
@@ -80,6 +83,34 @@
     "data": "~/.local/share/halo-ce",
     "rom_hint": "Needs your Halo: Combat Evolved Xbox disc image: put the .iso in ~/.local/share/halo-ce (or send it with Frame Inbox) and the first start copies its maps out.",
     "prereleases": true,
+    "mode": "game",
+    "icon_url": "https://raw.githubusercontent.com/Cogential/OpenCE-frame/steam-frame/port/android/art/android-icon.png"
+  },
+  {
+    "id": "banjo",
+    "name": "Banjo-Kazooie (Lighthouse)",
+    "repo": "Cogential/Lighthouse",
+    "asset": "lighthouse-steam-frame-arm64.zip",
+    "type": "zip",
+    "gameid": "Banjo_Kazooie",
+    "launch": "run.sh",
+    "keep": [
+      "*.z64"
+    ],
+    "data": "~/.local/share/Lighthouse",
+    "rom_hint": "Send your Banjo-Kazooie ROM (US) with Frame Inbox, or put a .z64 in ~/.local/share/Lighthouse.",
+    "icon_url": "https://raw.githubusercontent.com/Cogential/Lighthouse/android/logo.png",
+    "prereleases": true,
     "mode": "game"
+  },
+  {
+    "id": "frametanium",
+    "name": "Frametanium",
+    "repo": "Cogential/frametanium",
+    "asset": "frametanium-steam-frame-arm64.tar.gz",
+    "type": "tar",
+    "prereleases": false,
+    "mode": "installer",
+    "description": "This app. Updating it reinstalls the service and the headset app, then restarts the service."
   }
 ]

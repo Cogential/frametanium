@@ -85,9 +85,14 @@ def catalog():
     apps = {}
     for p in load_json(APP_DIR / "catalog.json", []):
         apps[p["id"]] = {**p, "builtin": True}
-    for p in load_json(USER_CATALOG, []):
-        if "id" in p:
-            apps[p["id"]] = {**apps.get(p["id"], {}), **p}
+    users = [p for p in load_json(USER_CATALOG, []) if "id" in p]
+    # A repo the user added before it became a built-in one stays the user's entry, so it isn't listed twice.
+    added = {p["repo"].lower(): p["id"] for p in users if p.get("repo")}
+    for pid, p in list(apps.items()):
+        if added.get(p["repo"].lower(), pid) != pid:
+            del apps[pid]
+    for p in users:
+        apps[p["id"]] = {**apps.get(p["id"], {}), **p}
     return {k: v for k, v in apps.items() if not v.get("hidden") and v.get("repo")}
 
 
@@ -593,7 +598,7 @@ def fetch(url, dest, limit=8 * 1024 * 1024):
 def art_folder(port):
     """The app's library art: the built-in ports ship theirs, added apps get their GitHub preview card and the
     owner's avatar (fetched once)."""
-    if port.get("builtin"):
+    if port.get("builtin") and (APP_DIR / "art" / port["id"]).is_dir():
         return APP_DIR / "art" / port["id"]
     art = DATA_DIR / "art" / port["id"]
     if not (art / "wide.png").exists():
@@ -601,7 +606,7 @@ def art_folder(port):
         try:
             fetch(f"https://opengraph.githubassets.com/1/{owner}/{name}", art / "wide.png")
             shutil.copyfile(art / "wide.png", art / "hero.png")
-            fetch(f"https://github.com/{owner}.png?size=256", art / "icon.png")
+            fetch(port.get("icon_url") or f"https://github.com/{owner}.png?size=256", art / "icon.png")
         except OSError:
             pass
     return art
@@ -1043,6 +1048,8 @@ def remove(pid, delete_files=True):
     outside its folder stay."""
     port = catalog()[pid]
     try:
+        if pid == "frametanium":
+            raise RuntimeError("Frametanium can't remove itself.")
         installed = load_json(INSTALLED_FILE, {})
         mode = installed.get(pid, {}).get("mode") or app_mode(port)
         note = ""

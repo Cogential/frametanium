@@ -5,7 +5,7 @@ and Frametanium keeps it up to date. Works from the headset or a browser.
 
 - **Add any GitHub repo** by typing `owner/name` (or pasting a link) on the headset's on-screen keyboard, from the
   browser page, or by picking a suggestion made for the Frame. The built-in ports (Ship of Harkinian, 2 Ship 2
-  Harkinian) are there from the start.
+  Harkinian, Starship, Lighthouse, OpenCE) are there from the start.
 - **Discover new Frame apps:** every 12 hours (or on demand) it searches GitHub for Steam Frame projects (the
   `steam-frame` topic, "steam frame" in names and descriptions, and the community's
   [awesome-steam-frame](https://github.com/kosantosbik/awesome-steam-frame) list) and shows the ones whose latest
@@ -17,7 +17,8 @@ and Frametanium keeps it up to date. Works from the headset or a browser.
   AppImages and single programs all work.
 - **Two ways to install,** picked from the download unless you choose:
   - *Library app:* unpacked into `~/devkit-game/<name>`, given a `run.sh` (its own, or one that starts the ARM64
-    program it finds), added to the Steam library with art (the repo's GitHub card and the owner's avatar).
+    program it finds), added to the Steam library with art (the repo's GitHub card, and the project's icon or the owner's avatar),
+    fetched when it's installed.
   - *Its installer:* when the download has `install.sh` (or `contrib/install.sh`, `setup.sh`), it's unpacked into
     `~/.local/share/frametanium/apps/<id>` and that script runs, for tools such as SteamVR overlays. Removing the app
     runs its uninstaller when it has one.
@@ -35,6 +36,10 @@ and Frametanium keeps it up to date. Works from the headset or a browser.
 
 Updates are checked every 6 hours and on demand.
 
+**Frametanium updates itself:** it's in its own list. Updating it downloads its latest
+[release](https://github.com/Cogential/frametanium/releases), reinstalls the service and the headset app, and
+restarts the service a few seconds later (reopen the headset app to get the new one).
+
 ## Files
 - `catalog.json`: the built-in ports.
 - `suggestions.json`: apps offered on the Add screen.
@@ -51,14 +56,18 @@ ROMs), or save a token in the web page's Settings: a fine-grained token limited 
 to the page.
 
 ## Install
-From a computer that can SSH into the Frame:
+On the Frame: download `frametanium-steam-frame-arm64.tar.gz` from the latest release, unpack it and run
+`sh install.sh`. It installs the service and adds the Frametanium app to the library.
+
+Or from a computer that can SSH into the Frame:
 
 ```sh
 app/build-arm64.sh       # cross-compiles the headset app into dist/app
 ./deploy.sh [host]       # host defaults to frame.local
 ```
 
-Service only, on the Frame: copy this folder over and run `sh install.sh`.
+Releases: push a tag `v*`; `.github/workflows/release.yml` builds the headset app on an ARM64 runner and publishes
+the bundle (`tools/bundle.sh`).
 Uninstall: `systemctl --user disable --now frametanium.service` and remove Frametanium from the library.
 
 ## Notes

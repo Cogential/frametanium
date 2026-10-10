@@ -1,0 +1,63 @@
+name: Release
+
+# Builds the headset app on an ARM64 runner (Ubuntu 24.04: glibc 2.39, as SteamOS on the Frame) and publishes
+# frametanium-steam-frame-arm64.tar.gz, which Frametanium installs to update itself (install.sh inside).
+# Push a tag v* to release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  SDL2_VERSION: 2.30.12
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the toolchain and SDL2's dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q clang lld ninja-build cmake \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev \
+            libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev libdrm-dev libgbm-dev libegl-dev libgles-dev \
+            libpulse-dev libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev
+
+      # A source build loads X11, Wayland, audio... at run time instead of linking them.
+      - name: Build SDL2
+        run: |
+          curl -fsSL "https://github.com/libsdl-org/SDL/releases/download/release-$SDL2_VERSION/SDL2-$SDL2_VERSION.tar.gz" | tar -xz -C "$RUNNER_TEMP"
+          cmake -S "$RUNNER_TEMP/SDL2-$SDL2_VERSION" -B "$RUNNER_TEMP/sdl2-build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/sdl2" -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST=OFF
+          ninja -C "$RUNNER_TEMP/sdl2-build" install
+
+      - name: Build the headset app
+        run: |
+          mkdir -p dist/app/lib
+          clang -O2 -Wall -march=armv8.2-a -fuse-ld=lld -I"$RUNNER_TEMP/sdl2/include/SDL2" -D_REENTRANT app/app.c \
+            -L"$RUNNER_TEMP/sdl2/lib" -lSDL2-2.0 -Wl,-rpath,'$ORIGIN/lib' -o dist/app/frametanium
+          strip dist/app/frametanium
+          cp -L "$RUNNER_TEMP/sdl2/lib/libSDL2-2.0.so.0" dist/app/lib/
+          sed -n '/^cat > "$OUT\/run.sh" <<.RUN.$/,/^RUN$/p' app/build-arm64.sh | sed '1d;$d' > dist/app/run.sh
+          chmod +x dist/app/run.sh
+          grep -q 'exec ./frametanium' dist/app/run.sh
+
+      - name: Package
+        run: |
+          tools/bundle.sh dist/app dist/bundle
+          tar -C dist/bundle -czf frametanium-steam-frame-arm64.tar.gz .
+          tar -tzf frametanium-steam-frame-arm64.tar.gz | grep -v '^./art/'
+
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" frametanium-steam-frame-arm64.tar.gz --target "$GITHUB_SHA" \
+            --title "Frametanium $GITHUB_REF_NAME" --notes "Update from Frametanium itself (its own row in the list), or unpack and run install.sh on the Frame."
