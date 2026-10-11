@@ -19,6 +19,25 @@
     "icon_url": "https://raw.githubusercontent.com/Cogential/Shipwright-frame/steam-frame/soh/macosx/sohIcon.png"
   },
   {
+    "id": "soh3d",
+    "name": "Ocarina of Time 3D (Ship of Harkinian, experimental)",
+    "repo": "Cogential/Shipwright-frame",
+    "asset": "soh-steam-frame-3d-arm64.zip",
+    "type": "zip",
+    "gameid": "Ocarina_of_Time_SoH_3D",
+    "launch": "run.sh",
+    "keep": [
+      "*.z64",
+      "*.n64",
+      "*.v64"
+    ],
+    "data": "~/.local/share/soh",
+    "rom_hint": "Send your Ocarina of Time ROM with Frame Inbox, or put a .z64 in ~/.local/share/soh.",
+    "prereleases": true,
+    "mode": "game",
+    "icon_url": "https://raw.githubusercontent.com/Cogential/Shipwright-frame/steam-frame/soh/macosx/sohIcon.png"
+  },
+  {
     "id": "2ship",
     "name": "Majora's Mask (2 Ship 2 Harkinian)",
     "repo": "Cogential/2ship2harkinian-frame",
