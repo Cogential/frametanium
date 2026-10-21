@@ -99,19 +99,28 @@ const hdr = () => key ? { "X-Key": key } : {};
 const releases = {};
 const open = {};                      // app ids whose Edit section is open, kept across redraws
 
-async function get(path) {
-  const r = await fetch(path, { headers: hdr() });
-  if (r.status === 401) {
-    key = prompt("Frametanium password") || "";
-    try { localStorage.setItem("pmKey", key); } catch (e) {}
-    return get(path);
+// Every request carries the password (the Frametanium app in the headset shows it under its list).
+async function call(path, opts = {}) {
+  const used = key;
+  const r = await fetch(path, { ...opts, headers: hdr() });
+  if (r.status === 403) {
+    $("notice").hidden = false;
+    $("notice").textContent = (await r.json()).error;
+    throw new Error("refused");
   }
-  return r.json();
+  if (r.status !== 401) return r.json();
+  if (key === used) {  // ask once, not once per request that was already on its way
+    const typed = prompt((key ? "That password didn't work. " : "") +
+                         "Frametanium password (it's under the list in the Frametanium app in the headset):");
+    if (typed === null) throw new Error("No password");
+    key = typed.trim();
+    try { localStorage.setItem("pmKey", key); } catch (e) {}
+  }
+  return call(path, opts);
 }
-async function post(path, body) {
-  const r = await fetch(path, { method: "POST", headers: hdr(), body });
-  return r.json();
-}
+const get = path => call(path);
+const post = (path, body) => call(path, { method: "POST", body });
+
 function el(tag, props = {}, ...kids) {
   const e = Object.assign(document.createElement(tag), props);
   e.append(...kids);

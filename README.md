@@ -71,8 +71,10 @@ the bundle (`tools/bundle.sh`).
 Uninstall: `systemctl --user disable --now frametanium.service` and remove Frametanium from the library.
 
 ## Notes
-- The service listens on port 8643 on your network. Set `password` in `~/.config/frametanium/config.json` to require
-  one in the browser (the headset app connects locally and doesn't need it).
+- The service listens on port 8643 on your network, and every request needs a secret: the browser page asks for the
+  password (made up on first start and shown under the list in the headset app; change `password` in
+  `~/.config/frametanium/config.json` if you like), and the headset app sends `app_key` from the same file (mode 600).
+  Requests addressed to unknown host names or sent from other sites' pages are refused.
 - Standard-library Python only. The headset app is C + SDL2 with the public-domain
   [font8x8](https://github.com/dhepper/font8x8).
 - Testing on another architecture: `FRAMETANIUM_EXEC_WRAPPER=qemu-aarch64-static` (with `QEMU_LD_PREFIX`) runs

@@ -101,6 +101,40 @@ def config():
     return {**DEFAULT_CONFIG, **load_json(CONFIG_FILE, {})}
 
 
+PASSWORD_LETTERS = "abcdefghjkmnpqrstuvwxyz23456789"  # nothing that's easy to misread
+
+
+def ensure_secrets():
+    """Makes up the headset app's key and the web page's password the first time (also on installs from before
+    they existed, which had no password), and keeps config.json readable only by its owner."""
+    with files_lock:
+        cfg = load_json(CONFIG_FILE, {})
+        changed = not CONFIG_FILE.exists()
+        if not cfg.get("app_key"):
+            cfg["app_key"] = secrets.token_hex(32)
+            changed = True
+        if not cfg.get("password"):
+            cfg["password"] = "-".join("".join(secrets.choice(PASSWORD_LETTERS) for _ in range(4)) for _ in range(3))
+            changed = True
+        if changed:
+            save_json(CONFIG_FILE, {**DEFAULT_CONFIG, **cfg}, private=True)
+    for path, mode in ((CONFIG_DIR, 0o700), (CONFIG_FILE, 0o600)):
+        try:
+            os.chmod(path, mode)
+        except OSError:
+            pass
+
+
+def lan_address():
+    """This machine's address on the local network (no packets are sent), or its hostname."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 9))
+            return s.getsockname()[0]
+    except OSError:
+        return socket.gethostname()
+
+
 def catalog():
     """The built-in ports plus the apps the user added. A user entry with the id of a built-in one changes it, and
     {"id": ..., "hidden": true} takes a built-in one off the list."""
@@ -1241,29 +1275,77 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.reply({"error": message}, code=code)
 
-    def allowed(self, q):
-        password = config().get("password") or ""
-        # The headset app talks to us over loopback and never needs the password.
-        if not password or self.client_address[0] == "127.0.0.1":
-            return True
-        return (self.headers.get("X-Key") or q.get("key", [""])[0]) == password
+    # Every request needs a secret in a header, from loopback too: the headset app sends the key it reads from
+    # config.json, the page the password. Pages from other sites can't set headers on requests here (and never get
+    # a CORS answer), so they can't use the API even from a browser on the Frame itself.
+    fail_lock = threading.Lock()
+
+    def host_ok(self):
+        """Refuses requests addressed to a name that isn't this machine's (DNS rebinding) and requests a page
+        from another site sent."""
+        host = (self.headers.get("Host") or "").strip().lower()
+        name = urllib.parse.urlsplit("//" + host).hostname or ""
+        try:
+            ipaddress.ip_address(name)
+            ok = True
+        except ValueError:
+            ok = name == "localhost" or name.endswith(".local") or ("." not in name and bool(name)) \
+                or name == socket.gethostname().lower() \
+                or name in {h.lower() for h in config().get("allowed_hosts") or []}
+        origin = self.headers.get("Origin")
+        if ok and origin is not None and urllib.parse.urlsplit(origin).netloc.lower() != host:
+            ok = False
+        return ok
+
+    def who(self):
+        """"app" for the headset app, "web" for the page with the right password, otherwise None."""
+        cfg = config()
+
+        def same(given, want):
+            return bool(given and isinstance(want, str) and want) and hmac.compare_digest(given.encode(), want.encode())
+        if same(self.headers.get("X-Frametanium-Key"), cfg.get("app_key")):
+            return "app"
+        if same(self.headers.get("X-Key"), cfg.get("password")):
+            return "web"
+        return None
+
+    def check(self, fmt):
+        """Whether the request may go on; answers it if not."""
+        if not self.host_ok():
+            self.reply({"error": "Open Frametanium by the Frame's address (its IP or name.local)."}, code=403)
+            return None
+        role = self.who()
+        if role is None:
+            with Handler.fail_lock:  # one wrong guess a second
+                time.sleep(1)
+            # Headset apps from before the key show this "#" line as a notice.
+            msg = "Frametanium was updated: close this app and open it again."
+            self.reply(f"#\terror\t{msg}\n!\t{msg}\n" if fmt == "tsv" else {"error": "password"},
+                       "text/plain" if fmt == "tsv" else "application/json", code=401)
+        return role
 
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(url.query)
+        fmt = q.get("fmt", ["json"])[0]
         if url.path == "/":
+            if not self.host_ok():
+                self.reply("Open Frametanium by the Frame's address (its IP or name.local).", "text/plain", 403)
+                return
             self.reply((APP_DIR / "page.html").read_bytes(), "text/html")
             return
-        if not self.allowed(q):
-            self.reply({"error": "password"}, code=401)
+        role = self.check(fmt)
+        if role is None:
             return
-        fmt = q.get("fmt", ["json"])[0]
         arg = lambda k: q.get(k, [""])[0]
         if url.path == "/api/state":
             rows = app_state()
             notice = jobs.state.get("_list", {})
             if fmt == "tsv":
                 head = f"#\t{notice.get('status', '')}\t{notice.get('message', '')}\n" if notice else ""
+                if role == "app":  # the headset app shows how to open the page in a browser
+                    cfg = config()
+                    head += f"@\thttp://{lan_address()}:{cfg['port']}\t{cfg['password']}\n"
                 self.reply(head + tsv(rows, ["id", "name", "installed", "latest", "status", "progress", "message",
                                              "can_rollback", "repo", "mode", "prereleases", "builtin", "job"]),
                            "text/plain")
@@ -1324,10 +1406,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         url = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(url.query)
-        if not self.allowed(q):
-            self.reply({"error": "password"}, code=401)
-            return
         fmt = q.get("fmt", ["json"])[0]
+        if self.check(fmt) is None:
+            return
         arg = lambda k: q.get(k, [""])[0]
         pid = arg("id")
         if url.path == "/api/refresh":
@@ -1392,10 +1473,10 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/token":
             length = int(self.headers.get("Content-Length") or 0)
             token = self.rfile.read(min(length, 4096)).decode().strip()
-            cfg = load_json(CONFIG_FILE, {})
-            cfg["github_token"] = token
-            save_json(CONFIG_FILE, cfg)
-            os.chmod(CONFIG_FILE, 0o600)
+            with files_lock:
+                cfg = load_json(CONFIG_FILE, {})
+                cfg["github_token"] = token
+                save_json(CONFIG_FILE, cfg, private=True)
             _releases_cache.clear()
             threading.Thread(target=refresh, kwargs={"force": True}, daemon=True).start()
             self.reply({"ok": True})
@@ -1418,10 +1499,8 @@ def checker():
 
 
 def main():
+    ensure_secrets()
     cfg = config()
-    if not CONFIG_FILE.exists():
-        save_json(CONFIG_FILE, cfg)
-        os.chmod(CONFIG_FILE, 0o600)
     threading.Thread(target=checker, daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", int(cfg["port"])), Handler)
     server.daemon_threads = True

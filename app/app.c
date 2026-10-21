@@ -134,8 +134,12 @@ static void fill(int x, int y, int w, int h, Uint32 rgb) {
 
 /* ---------------------------------------------------------------- service */
 
-static void read_port(void) {
-    char path[512], buf[2048];
+/* The service's port and the key it wants from this app, from the service's config.json (readable only by this
+ * user). It's read again when the service turns the key down, e.g. after the service made it on its first start. */
+static char app_key[128];
+
+static void read_config(void) {
+    char path[512], buf[4096];
     snprintf(path, sizeof path, "%s/.config/frametanium/config.json", getenv("HOME") ? getenv("HOME") : "");
     FILE* f = fopen(path, "r");
     if (!f) return;
@@ -147,10 +151,16 @@ static void read_port(void) {
         int v = atoi(p + 1);
         if (v > 0 && v < 65536) service_port = v;
     }
+    p = strstr(buf, "\"app_key\"");
+    if (p && (p = strchr(p, ':')) && (p = strchr(p, '"'))) {
+        size_t k = strspn(p + 1, "0123456789abcdefABCDEF");
+        if (k < sizeof app_key && p[1 + k] == '"') snprintf(app_key, sizeof app_key, "%.*s", (int)k, p + 1);
+    }
 }
 
-/* Sends a request to the service; returns the body (caller frees) or NULL if it isn't reachable. */
-static char* http(const char* method, const char* path, int timeout_s) {
+/* Sends a request to the service; returns the body (caller frees) or NULL if it isn't reachable. *status gets the
+ * HTTP status. */
+static char* http_once(const char* method, const char* path, int timeout_s, int* status) {
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) return NULL;
     struct timeval tv = { .tv_sec = timeout_s };
@@ -162,7 +172,9 @@ static char* http(const char* method, const char* path, int timeout_s) {
         return NULL;
     }
     char req[2048];
-    int n = snprintf(req, sizeof req, "%s %s HTTP/1.0\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n", method, path);
+    int n = snprintf(req, sizeof req,
+                     "%s %s HTTP/1.0\r\nHost: localhost\r\nX-Frametanium-Key: %s\r\nContent-Length: 0\r\n\r\n", method,
+                     path, app_key);
     if (n >= (int)sizeof req || write(s, req, n) != n) {
         close(s);
         return NULL;
@@ -181,8 +193,21 @@ static char* http(const char* method, const char* path, int timeout_s) {
         free(buf);
         return NULL;
     }
+    *status = 0;
+    sscanf(buf, "HTTP/%*s %d", status);
     memmove(buf, body + 4, strlen(body + 4) + 1);
     return buf;
+}
+
+static char* http(const char* method, const char* path, int timeout_s) {
+    int status = 0;
+    char* body = http_once(method, path, timeout_s, &status);
+    if (body && status == 401) { /* the key changed or was just made: read it again */
+        free(body);
+        read_config();
+        body = http_once(method, path, timeout_s, &status);
+    }
+    return body;
 }
 
 /* Percent-encodes s for a query string. */
@@ -221,6 +246,9 @@ static void copy(char* dst, size_t sz, const char* src) {
 /* Lines of a reply, one at a time (strtok_r so callers can nest). */
 #define EACH_LINE(body, line, save) for (char* line = strtok_r(body, "\n", &save); line; line = strtok_r(NULL, "\n", &save))
 
+/* How to open the web page from a phone or PC, shown under the list. */
+static char web_line[300];
+
 static int load_apps(App* apps, char* notice, size_t nsz, int* notice_busy) {
     char* body = http("GET", "/api/state?fmt=tsv", 5);
     if (!body) return -1;
@@ -234,6 +262,10 @@ static int load_apps(App* apps, char* notice, size_t nsz, int* notice_busy) {
         if (k >= 3 && !strcmp(f[0], "#")) {
             copy(notice, nsz, f[2]);
             *notice_busy = !strcmp(f[1], "installing");
+            continue;
+        }
+        if (k >= 3 && !strcmp(f[0], "@")) {
+            snprintf(web_line, sizeof web_line, "From a phone or PC: %s   password %s", f[1], f[2]);
             continue;
         }
         if (k < 13 || n >= MAX_APPS) continue;
@@ -488,7 +520,7 @@ static void draw_list(App* apps, int n, int sel, const char* banner, Uint32 bann
         return;
     }
     int row_h = 50 * S;
-    int max_rows = (H - y - 40 * S) / row_h;
+    int max_rows = (H - y - (web_line[0] ? 56 : 40) * S) / row_h;
     if (max_rows < 1) max_rows = 1;
     int first = scroll_first(sel, max_rows);
     for (int i = first; i <= n + 1 && i < first + max_rows; i++) {
@@ -529,6 +561,7 @@ static void draw_list(App* apps, int n, int sel, const char* banner, Uint32 bann
         y += row_h;
     }
     legend("A Open  Y Add  X Discover  Select Update all  Start Check  B Close");
+    if (web_line[0]) text_fit(web_line, m, H - H / 20 - 30 * S, S, W - 2 * m, MUTED);
     SDL_RenderPresent(ren);
 }
 
@@ -760,7 +793,7 @@ int main(void) {
     if (!ren) return 1;
     SDL_ShowCursor(SDL_DISABLE);
     SDL_StopTextInput();
-    read_port();
+    read_config();
 
     static App apps[MAX_APPS];
     static Release rels[MAX_RELEASES];
