@@ -13,10 +13,14 @@ Control it from the headset app (app/) or from a browser at http://<frame>:8643.
 """
 
 import fnmatch
+import hmac
+import ipaddress
 import json
 import os
 import re
+import secrets
 import shutil
+import socket
 import stat
 import struct
 import subprocess
@@ -46,7 +50,9 @@ STEAM_USERDATA = HOME / ".local/share/Steam/userdata"
 
 DEFAULT_CONFIG = {
     "port": 8643,
-    "password": "",       # for the web page; empty means anyone on the network can use it
+    "password": "",       # for the web page; made up on first start when empty (the headset app shows it)
+    "app_key": "",        # for the headset app, which reads it from this file; made up on first start
+    "allowed_hosts": [],  # extra names the page may be opened by (IP addresses, .local and plain names always work)
     "github_token": "",   # needed only for private repos (read-only access to their releases is enough)
     "compat_tool": "SteamLinuxRuntime_4-arm64",
     "check_hours": 6,
@@ -57,22 +63,38 @@ INSTALLERS = ["install.sh", "contrib/install.sh", "scripts/install.sh", "setup.s
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
+# Held around every read-modify-write of the settings files, which the web handlers and install threads share.
+files_lock = threading.RLock()
+
+
 def load_json(path, default):
     try:
         with open(path) as f:
             return json.load(f)
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        return default
+    except (OSError, ValueError) as e:
+        # A damaged file (e.g. power lost mid-write) is kept aside rather than overwritten by the next save.
+        if isinstance(e, ValueError):
+            aside = path.with_name(f"{path.name}.damaged-{int(time.time())}")
+            try:
+                os.replace(path, aside)
+                print(f"{path} couldn't be read; kept it as {aside}", file=sys.stderr, flush=True)
+            except OSError:
+                pass
         return default
 
 
-def save_json(path, data):
+def save_json(path, data, private=False):
+    """Writes atomically: a temp file of its own (never readable by others when private), synced, then renamed."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    with open(tmp, "w") as f:
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600 if private else 0o644)
+    with os.fdopen(fd, "w") as f:
         json.dump(data, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
     os.replace(tmp, path)
-
-
 
 
 def config():
@@ -98,13 +120,14 @@ def catalog():
 
 def update_user_entry(pid, **fields):
     """Changes (or with remove=True deletes) the user's entry for an app, creating one for a built-in app."""
-    entries = load_json(USER_CATALOG, [])
-    entry = next((e for e in entries if e.get("id") == pid), None)
-    if entry is None:
-        entry = {"id": pid}
-        entries.append(entry)
-    entry.update(fields)
-    save_json(USER_CATALOG, entries)
+    with files_lock:
+        entries = load_json(USER_CATALOG, [])
+        entry = next((e for e in entries if e.get("id") == pid), None)
+        if entry is None:
+            entry = {"id": pid}
+            entries.append(entry)
+        entry.update(fields)
+        save_json(USER_CATALOG, entries)
 
 
 def suggestions():
@@ -119,8 +142,9 @@ def unhide_builtin(repo):
     port = next((p for p in load_json(APP_DIR / "catalog.json", []) if p["repo"].lower() == repo.lower()), None)
     if port is None:
         return None
-    entries = load_json(USER_CATALOG, [])
-    save_json(USER_CATALOG, [e for e in entries if not (e.get("id") == port["id"] and e.get("hidden"))])
+    with files_lock:
+        entries = load_json(USER_CATALOG, [])
+        save_json(USER_CATALOG, [e for e in entries if not (e.get("id") == port["id"] and e.get("hidden"))])
     return port["id"]
 
 
@@ -334,14 +358,15 @@ def add_app(repo_text, asset=None, name=None, mode="auto", prereleases=None):
     g, n = gameid, 2
     while g in used:
         g, n = f"{gameid}_{n}", n + 1
-    entries = load_json(USER_CATALOG, [])
-    entries.append({
-        "id": pid, "name": title, "repo": info["repo"], "asset": asset_glob(asset), "auto_asset": True,
-        "mode": mode if mode in ("auto", "game", "installer") else "auto",
-        "prereleases": info["prereleases"] if prereleases is None else bool(prereleases),
-        "gameid": g, "description": info["description"][:300], "added": int(time.time()),
-    })
-    save_json(USER_CATALOG, entries)
+    with files_lock:
+        entries = load_json(USER_CATALOG, [])
+        entries.append({
+            "id": pid, "name": title, "repo": info["repo"], "asset": asset_glob(asset), "auto_asset": True,
+            "mode": mode if mode in ("auto", "game", "installer") else "auto",
+            "prereleases": info["prereleases"] if prereleases is None else bool(prereleases),
+            "gameid": g, "description": info["description"][:300], "added": int(time.time()),
+        })
+        save_json(USER_CATALOG, entries)
     _releases_cache.clear()
     return pid
 
@@ -506,10 +531,11 @@ def discovered():
 
 
 def discover_mark(repos, key):
-    prefs = load_json(DISCOVER_FILE, {"seen": [], "hidden": []})
-    have = {r.lower() for r in prefs[key]}
-    prefs[key] += [r for r in repos if r and r.lower() not in have]
-    save_json(DISCOVER_FILE, prefs)
+    with files_lock:
+        prefs = load_json(DISCOVER_FILE, {"seen": [], "hidden": []})
+        have = {r.lower() for r in prefs[key]}
+        prefs[key] += [r for r in repos if r and r.lower() not in have]
+        save_json(DISCOVER_FILE, prefs)
 
 
 def start_discover(force=True):
@@ -1002,10 +1028,11 @@ def install(pid, tag=None):
                 raise
             message = f"Installed {rel['tag']}." + (f" {tail}" if tail else "")
 
-        installed = load_json(INSTALLED_FILE, {})
-        prev = installed.get(pid, {}).get("tag")
-        installed[pid] = {"tag": rel["tag"], "previous": prev, "time": int(time.time()), "mode": mode}
-        save_json(INSTALLED_FILE, installed)
+        with files_lock:
+            installed = load_json(INSTALLED_FILE, {})
+            prev = installed.get(pid, {}).get("tag")
+            installed[pid] = {"tag": rel["tag"], "previous": prev, "time": int(time.time()), "mode": mode}
+            save_json(INSTALLED_FILE, installed)
 
         data = Path(os.path.expanduser(port.get("data", "")))
         if port.get("rom_hint") and port.get("data") and not any(data.glob("*.o2r")) and not any(data.glob("*.z64")):
@@ -1041,9 +1068,11 @@ def rollback(pid):
         if mode == "installer":
             jobs.set(pid, "installing", 1.0, "Running its installer")
             run_installer(final, port)
-        installed[pid] = {"tag": cur.get("previous"), "previous": cur.get("tag"), "time": int(time.time()),
-                          "mode": mode}
-        save_json(INSTALLED_FILE, installed)
+        with files_lock:
+            installed = load_json(INSTALLED_FILE, {})
+            installed[pid] = {"tag": cur.get("previous"), "previous": cur.get("tag"), "time": int(time.time()),
+                              "mode": mode}
+            save_json(INSTALLED_FILE, installed)
         jobs.set(pid, "done", 1.0, f"Back to {cur.get('previous') or 'the previous version'}.")
     except Exception as e:
         jobs.set(pid, "error", 0.0, str(e))
@@ -1070,12 +1099,14 @@ def remove(pid, delete_files=True):
                 note = " Remove its tile from the library too: Manage > Remove non-Steam game."
             shutil.rmtree(final, ignore_errors=True)
             shutil.rmtree(final.parent / f".{final.name}.previous", ignore_errors=True)
-        installed.pop(pid, None)
-        save_json(INSTALLED_FILE, installed)
-        entries = [e for e in load_json(USER_CATALOG, []) if e.get("id") != pid]
-        if port.get("builtin"):
-            entries.append({"id": pid, "hidden": True})
-        save_json(USER_CATALOG, entries)
+        with files_lock:
+            installed = load_json(INSTALLED_FILE, {})
+            installed.pop(pid, None)
+            save_json(INSTALLED_FILE, installed)
+            entries = [e for e in load_json(USER_CATALOG, []) if e.get("id") != pid]
+            if port.get("builtin"):
+                entries.append({"id": pid, "hidden": True})
+            save_json(USER_CATALOG, entries)
         jobs.state.pop(pid, None)
         _latest.pop(pid, None)
         jobs.set("_list", "done", 1.0, f"Removed {port['name']}.{note}")
