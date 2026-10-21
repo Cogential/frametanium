@@ -34,11 +34,14 @@ and Frametanium keeps it up to date. Works from the headset or a browser.
   updates, **B** back/close.
 - **From a phone or PC:** `http://<frame-ip>:8643` (add apps, edit name/install style/program, remove).
 
-Updates are checked every 6 hours and on demand.
+Updates are checked every 6 hours, each time you open the headset app, and on demand.
 
-**Frametanium updates itself:** it's in its own list. Updating it downloads its latest
-[release](https://github.com/Cogential/frametanium/releases), reinstalls the service and the headset app, and
-restarts the service a few seconds later (reopen the headset app to get the new one).
+**Frametanium updates itself:** when a check finds a newer [release](https://github.com/Cogential/frametanium/releases)
+of Frametanium, it installs it without asking (unless something else is installing; the next check tries again):
+it reinstalls the service and the headset app and restarts the service a few seconds later. The headset app then
+says to close and reopen it to get the new version. Turn this off with `"self_update": false` in
+`~/.config/frametanium/config.json` (you can still update it from its row in the list). Its version comes from the
+`VERSION` file the bundle carries (`tools/bundle.sh`; releases set it from the tag).
 
 ## Files
 - `catalog.json`: the built-in ports.

@@ -801,7 +801,7 @@ int main(void) {
     static Found fd;
     static Disc disc[MAX_DISC];
     int napps = -1, sel = 0, nrels = 0, rsel = 0, msel = 0, asel = 0, nsug = 0, tried_start = 0;
-    int ndisc = 0, dsel = 0, disc_running = 0, disc_new = 0, found_from = ADDING;
+    int ndisc = 0, dsel = 0, disc_running = 0, disc_new = 0, found_from = ADDING, launch_checked = 0;
     char disc_msg[300] = "";
     Uint32 next_disc_poll = 0;
     int screen = LIST, kb_row = 1, kb_col = 0, notice_busy = 0;
@@ -862,6 +862,10 @@ int main(void) {
             if (napps < 0 && !tried_start) {
                 tried_start = 1;
                 try_start_service();
+            }
+            if (napps >= 0 && !launch_checked) { /* check for updates (and let Frametanium update itself) on opening */
+                launch_checked = 1;
+                post("/api/refresh?launch=1", NULL, 0);
             }
             int busy = notice_busy;
             for (int i = 0; i < napps; i++) busy |= busy_status(apps[i].status);

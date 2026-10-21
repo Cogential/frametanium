@@ -20,6 +20,7 @@ done
 
 mkdir -p "$dest"
 cp "$here/manager.py" "$here/page.html" "$here/catalog.json" "$here/suggestions.json" "$dest/"
+if [ -f "$here/VERSION" ]; then cp "$here/VERSION" "$dest/"; else rm -f "$dest/VERSION"; fi
 rm -rf "$dest/art" && cp -r "$here/art" "$dest/art"
 cp "$here/frametanium.service" "$HOME/.config/systemd/user/"
 systemctl --user daemon-reload

@@ -8,6 +8,11 @@ See README.md for what it does. Service: `manager.py` (stdlib Python, runs on th
   `ensure_secrets()`. Never add a loopback/no-password bypass, never accept secrets in the query string, and keep
   `host_ok()` (Host allow-list + Origin check). Any auth change must change app.c and page.html together, and old
   headset apps must still get a readable "#" notice in TSV replies.
+- **Self-update:** `check()` (every few hours, on each headset-app launch via `/api/refresh?launch=1`, and on
+  request) installs a newer Frametanium release by itself (`self_update` in config.json, default on). Its installed
+  version is the bundle's `VERSION` file (`tools/bundle.sh`; CI passes `VERSION=$GITHUB_REF_NAME`), not
+  installed.json. `update_all` must keep Frametanium last (its install.sh restarts the service 3 s later).
+  A bad release spreads to every Frame on its own now: test before tagging.
 - Write settings files only with `save_json` (unique temp + fsync; `private=True` for config.json) and do
   read-modify-writes under `files_lock`.
 - Test locally: run manager.py with `HOME=<scratch>` and a config.json with another port; build app.c natively
@@ -21,4 +26,4 @@ Left, in this order: security MEDIUM 3 (Discover installs run install.sh without
 check: verify the GitHub asset `digest`; plan was an ed25519 signature for Frametanium's own updates, verified with
 `openssl pkeyutl -rawin`), 6 (tar symlink traversal, .tar.zst via GNU tar), 5 (workflow: SDL2 hash, pin
 actions by SHA), 7 (AppImage executed to unpack: prefer `unsquashfs -o <ELF end>`), LOW 8/9/11/14; then code-review
-bugs 1-9 and 12-16 (2: update Frametanium last in update_all; 4: Frametanium's own row needs a VERSION file).
+bugs 1, 3, 5-9 and 12-16 (2 and 4 were fixed with the self-update on 2026-10-21).

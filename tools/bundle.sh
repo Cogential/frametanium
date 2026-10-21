@@ -8,5 +8,7 @@ APPDIR="$1" OUT="$2"
 rm -rf "$OUT" && mkdir -p "$OUT/tools"
 cp manager.py page.html catalog.json suggestions.json frametanium.service install.sh README.md "$OUT/"
 cp tools/find_appid.py "$OUT/tools/"
+# The release it is (releases pass VERSION; local builds count as the newest tag), so Frametanium knows when to update.
+echo "${VERSION:-$(git describe --tags --abbrev=0 2>/dev/null || echo unknown)}" > "$OUT/VERSION"
 cp -r art "$OUT/art"
 cp -r "$APPDIR" "$OUT/app"

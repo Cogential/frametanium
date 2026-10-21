@@ -56,6 +56,7 @@ DEFAULT_CONFIG = {
     "github_token": "",   # needed only for private repos (read-only access to their releases is enough)
     "compat_tool": "SteamLinuxRuntime_4-arm64",
     "check_hours": 6,
+    "self_update": True,  # install new Frametanium releases by itself
 }
 CHUNK = 1024 * 1024
 RELEASES_TTL = 600
@@ -1149,10 +1150,11 @@ def remove(pid, delete_files=True):
 
 
 def update_all(_pid=None):
-    """Updates every installed app that has a newer release, one after another."""
+    """Updates every installed app that has a newer release, one after another. Frametanium goes last: updating it
+    restarts the service a few seconds later, which would stop any install after it."""
     jobs.set("_list", "installing", 0.0, "Updating everything")
     count = 0
-    for row in app_state():
+    for row in sorted(app_state(), key=lambda r: r["id"] == SELF_ID):
         if row["status"] == "update available":
             install(row["id"])
             count += 1
@@ -1175,6 +1177,34 @@ def start(fn, pid, *args):
 _latest = {}  # app id -> (tag, error)
 
 
+SELF_ID = "frametanium"
+
+
+def own_version():
+    """The release this service came from (VERSION, written by tools/bundle.sh), or None."""
+    try:
+        return (APP_DIR / "VERSION").read_text().strip() or None
+    except OSError:
+        return None
+
+
+def self_update():
+    """Installs a newer Frametanium release once a check has found one, unless something else is installing (the next
+    check tries again) or "self_update" is off in config.json."""
+    if not config().get("self_update", True):
+        return
+    row = next((r for r in app_state() if r["id"] == SELF_ID), None)
+    if row and row["status"] == "update available" and start(install, SELF_ID):
+        print(f"Updating Frametanium {row['installed']} -> {row['latest']}", file=sys.stderr, flush=True)
+
+
+def check(force=True):
+    """An update check (every few hours, when the headset app opens, or on request), then the self-update."""
+    ok = refresh(force=force)
+    self_update()
+    return ok
+
+
 def refresh(force=False):
     """Checks every app for releases. Returns False if any check failed."""
     ok = True
@@ -1195,6 +1225,8 @@ def app_state():
         folder = target_dir(port, mode) if mode != "auto" else None
         present = bool(folder and folder.exists())
         tag = installed.get(pid, {}).get("tag") if present else None
+        if pid == SELF_ID:  # it's running, however it was installed (deploy.sh, its install.sh or an update)
+            present, tag = True, own_version() or tag
         if present and not tag:
             tag = "unknown"
         if pid not in _latest:
@@ -1412,8 +1444,13 @@ class Handler(BaseHTTPRequestHandler):
         arg = lambda k: q.get(k, [""])[0]
         pid = arg("id")
         if url.path == "/api/refresh":
-            _releases_cache.clear()
-            threading.Thread(target=refresh, kwargs={"force": True}, daemon=True).start()
+            # The headset app asks with launch=1 each time it opens: releases checked in the last 10 minutes count.
+            force = arg("launch") != "1"
+            if force:
+                _releases_cache.clear()
+            elif jobs.state.get("_list", {}).get("message", "").startswith("Frametanium updated to"):
+                jobs.state.pop("_list", None)  # it's been reopened
+            threading.Thread(target=check, kwargs={"force": force}, daemon=True).start()
             self.reply({"ok": True})
         elif url.path == "/api/update_all":
             ok = start(update_all, "_list")
@@ -1487,7 +1524,7 @@ class Handler(BaseHTTPRequestHandler):
 def checker():
     retry = 30
     while True:
-        if refresh(force=True):
+        if check(force=True):
             retry = 30
             discover()
             time.sleep(max(1, float(config().get("check_hours", 6))) * 3600)
@@ -1501,6 +1538,13 @@ def checker():
 def main():
     ensure_secrets()
     cfg = config()
+    version = own_version()
+    if version and version != cfg.get("last_version"):
+        if cfg.get("last_version"):
+            jobs.set("_list", "done", 1.0, f"Frametanium updated to {version}. Close this app and open it again "
+                                           "to use the new version.")
+        with files_lock:
+            save_json(CONFIG_FILE, {**load_json(CONFIG_FILE, {}), "last_version": version}, private=True)
     threading.Thread(target=checker, daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", int(cfg["port"])), Handler)
     server.daemon_threads = True

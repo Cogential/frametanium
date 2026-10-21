@@ -50,7 +50,7 @@ jobs:
 
       - name: Package
         run: |
-          tools/bundle.sh dist/app dist/bundle
+          VERSION="$GITHUB_REF_NAME" tools/bundle.sh dist/app dist/bundle
           tar -C dist/bundle -czf frametanium-steam-frame-arm64.tar.gz .
           tar -tzf frametanium-steam-frame-arm64.tar.gz | grep -v '^./art/'
 
