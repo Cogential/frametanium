@@ -25,6 +25,11 @@
     "note": "Stream games from your PC (Sunshine/Apollo) to a 3D screen in the headset"
   },
   {
+    "repo": "simplysanatori/AzaharFrame",
+    "name": "Azahar for Frame (3DS VR)",
+    "note": "Azahar with CitraVR's VR modes, native Arm64; needs your own games"
+  },
+  {
     "repo": "simplysanatori/KartFrame",
     "name": "KartFrame (Mario Kart Wii VR)",
     "note": "Native port of Wiicompiled VR PLUS; built from your own disc on first run"
